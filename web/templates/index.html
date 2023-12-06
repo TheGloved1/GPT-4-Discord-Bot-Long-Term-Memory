@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chat With GlovedBot</title>
+</head>
+<body>
+    <h1>Chat with GlovedBot</h1>
+    <div>
+        {% for message in conversation %}
+            <p><strong>{{ message.role|capitalize }}:</strong> {{ message.content }}</p>
+        {% endfor %}
+    </div>
+    <form method="post" action="/">
+        <input type="text" name="user_input" />
+        <button type="submit">Send</button>
+    </form>
+</body>
+</html>

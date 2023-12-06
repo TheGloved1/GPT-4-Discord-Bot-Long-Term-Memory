@@ -1,3 +1,4 @@
+import asyncio
 from enum import Enum
 from dataclasses import dataclass
 import openai
@@ -41,11 +42,16 @@ class CompletionData:
 
 
 async def generate_completion_response(
-    messages: List[Message], user: str
+    messages: List[Message], user: str, message: discord.Message
 ) -> CompletionData:
+    
+    interactive_response = await message.channel.send("...")
+
+    current_content = "..."
+
     try:
         timestamp = time()
-        imestring = timestring = timestamp_to_datetime(timestamp)
+        timestring = timestring = timestamp_to_datetime(timestamp)
         prompt = Prompt(
             header=Message(
                 "System", f"Instructions for {MY_BOT_NAME}: {BOT_INSTRUCTIONS}"
@@ -56,27 +62,50 @@ async def generate_completion_response(
         
         rendered = prompt.render()
         print(rendered)
-        #response = openai.Completion.create(
-            #model="text-davinci-003",
-            #message=rendered,
-            #temperature=1.0,
-            #top_p=0.9,
-            #max_tokens=512,
-            #stop=["<|endoftext|>"],
+        # response = openai.Completion.create(
+        #     model="text-davinci-003",
+        #     message=rendered,
+        #     temperature=1.0,
+        #     top_p=0.9,
+        #     max_tokens=512,
+        #     n=1,
+        #     stop=["<|endoftext|>"])
             
-         # You can rollback to using text-davincini-003 by swapping the active "response =" and "reply ="
+        # You can rollback to using text-davincini-003 by swapping the active "response =" and "reply ="
 
         response = openai.ChatCompletion.create(
             model="gpt-4-1106-preview",
-            messages=[{"role": "system", "content": rendered}])
-
-        #reply = response.choices[0].text.strip()
-        
-        reply = response.choices[0].message['content'].strip()
-
-        return CompletionData(
-            status=CompletionResult.OK, reply_text=reply, status_text=None
+            messages=[{"role": "system", "content": rendered}],
+            stream=True
         )
+
+        # Below for "text-davinci-003" model
+        # reply = response.choices[0].text.strip()
+
+        for chunk in response:
+            if 'choices' in chunk and len(chunk['choices'][0]['text']) > 0:
+                text = chunk.choices[0].message['text'].strip()
+                if text:
+                    return CompletionData(
+                        status=CompletionResult.OK, reply_text=text, status_text=None
+                    )
+                    # Add this text chunk to the current content
+                    current_content += text
+
+                    # Keep editing the same message with the new chunk appended
+                    if len(current_content) <= 2000:
+                        await interactive_response.edit(content=current_content)
+                    else:
+                        # If we exceed the max message length, send a new one
+                        current_content = text  # Reset current_content with the current chunk
+                        interactive_response = await message.channel.send(current_content)
+
+                # Discord best practices recommend adding a sleep timer when editing messages frequently
+                await asyncio.sleep(0.5)
+
+
+                
+        
     except openai.error.InvalidRequestError as e:
         if "This model's maximum context length" in e.user_message:
             return CompletionData(
@@ -97,7 +126,7 @@ async def generate_completion_response(
 
 
 async def process_response(
-    user: str, channel: discord.TextChannel, response_data: CompletionData
+    user: str, channel: discord.TextChannel, response_data: CompletionData, message=discord.Message
 ):
     status = response_data.status
     reply_text = response_data.reply_text
@@ -114,7 +143,10 @@ async def process_response(
         else:
             shorter_response = split_into_shorter_messages(reply_text)
             for r in shorter_response:
-                sent_message = await channel.send(r)
+                if (channel.type == discord.ChannelType.text):
+                    sent_message = await message.reply(r)
+                else:
+                    sent_message = await channel.send(r)
 
     elif status is CompletionResult.INVALID_REQUEST:
         await channel.send(

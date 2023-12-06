@@ -22,16 +22,17 @@ DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 DISCORD_CLIENT_ID = os.environ["DISCORD_CLIENT_ID"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
-ALLOWED_SERVER_IDS: List[int] = []
-server_ids = os.environ["ALLOWED_SERVER_IDS"].split(",")
-for s in server_ids:
-    ALLOWED_SERVER_IDS.append(int(s))
+ALLOWED_CHANNEL_NAMES: List[str] = []
+channel_names = os.environ["ALLOWED_CHANNEL_NAMES"].split(",")
+for s in channel_names:
+    ALLOWED_CHANNEL_NAMES.append(str(s))
+
 
 # Send Messages, Send Messages in Threads, Manage Messages, Read Message History
 BOT_INVITE_URL = f"https://discord.com/api/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&permissions=328565073920&scope=bot"
 
 SECONDS_DELAY_RECEIVING_MSG = (
-    3  # give a delay for the bot to respond so it can catch multiple messages
+    0  # give a delay for the bot to respond so it can catch multiple messages
 )
 MAX_MESSAGE_HISTORY = 10
 MAX_CHARS_PER_REPLY_MSG = (

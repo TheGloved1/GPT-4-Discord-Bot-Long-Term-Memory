@@ -1,11 +1,11 @@
 from src.constants import (
-    ALLOWED_SERVER_IDS,
+    ALLOWED_CHANNEL_NAMES,
 )
 import logging
 
 logger = logging.getLogger(__name__)
 from src.base import Message
-from discord import Message as DiscordMessage
+from discord import ChannelType, Message as DiscordMessage
 from typing import Optional, List
 import discord
 
@@ -35,14 +35,10 @@ def is_last_message_stale(
         and last_message.author.id != bot_id
     )
 
-def should_block(guild: Optional[discord.Guild]) -> bool:
-    if guild is None:
-        # dm's not supported
-        logger.info(f"DM not supported")
-        return True
+def should_block(channel) -> bool:
 
-    if guild.id and guild.id not in ALLOWED_SERVER_IDS:
+    if channel.name and channel.name not in ALLOWED_CHANNEL_NAMES:
         # not allowed in this server
-        logger.info(f"Guild {guild} not allowed")
+        logger.info(f"Messages from {channel} not allowed")
         return True
     return False
