@@ -118,7 +118,7 @@ def gpt3_completion(prompt, engine='gpt-3.5-turbo', temp=0.0, top_p=1.0, tokens=
     while True:
         try:
             response = openai.ChatCompletion.create(
-            model="gpt-4-1106-preview",
+            model="gpt-3.5-turbo",
             messages=[{"role": "system", "content": prompt}])
                 
             text = response.choices[0].message['content'].strip()

@@ -1,3 +1,4 @@
+import discord
 from dotenv import load_dotenv
 import os
 import dacite
@@ -17,6 +18,7 @@ CONFIG: Config = dacite.from_dict(
 BOT_NAME = CONFIG.name
 BOT_INSTRUCTIONS = CONFIG.instructions
 EXAMPLE_CONVOS = CONFIG.example_conversations
+MY_GUILD = discord.Object(id=937806100546351174)
 
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 DISCORD_CLIENT_ID = os.environ["DISCORD_CLIENT_ID"]

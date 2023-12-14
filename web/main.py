@@ -19,7 +19,7 @@ def chat():
             session["history"] = []
         openai.api_key = os.environ['OPENAI_API_KEY']
 
-        system_prompt = {"role": "system", "content": "You are a snarky, yet helpful assistant."}
+        system_prompt = {"role": "system", "content": "You are a snarky, yet helpful assistant. "}
 
         # Add user input to history
         session['history'].append({"role": "user", "content": user_input})
