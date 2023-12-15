@@ -316,6 +316,7 @@ async def chat(interaction: discord.Interaction, prompt: str):
 
 logger.info('Registered Commands!')
 
+
 # @bot.command()
 # async def start_thread(ctx):
 #     if ctx.channel.name == 'gloved-gpt':
