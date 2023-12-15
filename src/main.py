@@ -1,8 +1,10 @@
 from asyncio import tasks
 from typing import Optional
+from click import prompt
 import discord
 from discord import BotIntegration, Message as DiscordMessage, ButtonStyle, app_commands
 from discord import Interaction
+from discord import InteractionResponse
 from discord.ui import Modal, View, Button, TextInput, Select
 import logging
 import asyncio
@@ -57,33 +59,18 @@ logging.basicConfig(
     format="[%(asctime)s] [%(filename)s:%(lineno)d] %(message)s", level=logging.INFO
 )
 
-class MyClient(discord.Client):
-    def __init__(self, *, intents: discord.Intents):
-        super().__init__(intents=intents)
-        # A CommandTree is a special type that holds all the application command
-        # state required to make it work. This is a separate class because it
-        # allows all the extra state to be opt-in.
-        # Whenever you want to work with application commands, your tree is used
-        # to store and work with them.
-        # Note: When using commands.Bot instead of discord.Client, the bot will
-        # maintain its own tree instead.
-        self.tree = app_commands.CommandTree(self)
-
-    # In this basic example, we just synchronize the app commands to one guild.
-    # Instead of specifying a guild to every command, we copy over our global commands instead.
-    # By doing so, we don't have to wait up to an hour until they are shown to the end-user.
-    async def setup_hook(self):
-        # This copies the global commands over to your guild.
-        self.tree.copy_global_to(guild=MY_GUILD)
-        await self.tree.sync(guild=MY_GUILD)
-        logger.info(f"Successfully synced commands to (Guild: {MY_GUILD.id})")
-
-
 intents = discord.Intents.default()
 intents.message_content = True
-client = MyClient(intents=intents)
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 openai.api_key = OPENAI_API_KEY
 
+async def setup_hook():
+    # This copies the global commands over to your guild.
+    tree.copy_global_to(guild=MY_GUILD)
+    await tree.sync(guild=MY_GUILD)
+    logger.info(f"Successfully synced commands to (Guild: {MY_GUILD.id})")
+    
 # Ready
 @client.event
 async def on_ready():
@@ -98,7 +85,8 @@ async def on_ready():
             else:
                 messages.append(m)
         completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
-        
+    await setup_hook()
+
 
 def sendMessage(message: DiscordMessage, content: str):
     TextChannel = message.channel.type == discord.ChannelType.text
@@ -116,16 +104,18 @@ class MyView(View):
         self.add_item(MyButton())
 
 ## Events
-@client.event
-async def on_interaction(interaction: discord.Interaction):
-    SlashCommand = interaction.type == discord.InteractionType.application_command
-    if SlashCommand:
-        logger.info('Command deferred successfully!')
-        await interaction.followup.send(content=f'You said: {interaction.data["options"][0]["value"]}')
+# @client.event
+# async def on_interaction(interaction: discord.Interaction):
+#     SlashCommand = interaction.type == discord.InteractionType.application_command
+#     ButtonClick = interaction.type == discord.InteractionType.component
+#     logger.info('Started Interaction Event!')
+
+#     # await interaction.response.defer(thinking=True, ephemeral=False)
+#     # return
+
 
 @client.event            
 async def on_message(message: DiscordMessage):
-
     if (message.author == client.user) or message.author.bot: 
         return
     
@@ -154,6 +144,7 @@ async def on_message(message: DiscordMessage):
         return
 
     try:
+        
         if message.content.startswith('?'):
             return
         ## Check if message is in a valid channel
@@ -162,6 +153,7 @@ async def on_message(message: DiscordMessage):
                 if not (channel.name == 'gloved-gpt'):
                     return
         thinkingText = "**```Processing Message...```**"
+        logger.info('Recieved Interaction Message!')
         if message.channel.name == 'gloved-gpt':
             logger.info('Gloved GPT Channel Message Recieved!')
 
@@ -177,7 +169,6 @@ async def on_message(message: DiscordMessage):
             interactive_response = await thread.send(thinkingText)
         elif PublicThread and channel.parent.name == 'gloved-gpt': 
             interactive_response = await sendMessage(message, thinkingText)
-        
         
         # Start off the response message, this'll be the one we keep updating
         print('Embedding Message!')
@@ -294,84 +285,69 @@ async def on_message(message: DiscordMessage):
         await asyncio.sleep(1.5)
         await responseReply.delete()
 
-        # # send response
-        # await process_response(
-        #     channel=message.channel, user=message.author, response_data=response_data, message=message
-        # )
     except Exception as e:
         logger.exception(e)
         await interactive_response.edit(content = e)
 logger.info('Registered Events!')
 
 ## Commands
-@client.tree.command(description='Starts a new chat with GlovedBot.')
-# @app_commands.describe(
-#     prompt='The message you want to send to GlovedBot.',
-# )
-async def chat(interaction: discord.Interaction, prompt: str):
-    """Starts a new chat with GlovedBot."""
-    await interaction.response.defer(thinking=True)
-    logger.info('Recieved Chat Command!')
-    await interaction.response.edit_message(content=f'You said: {prompt}')
+@tree.command(guild=MY_GUILD, name="image", description="Generate an image from a prompt.")
+@app_commands.describe(prompt="The prompt to generate an image from.")
+async def image(interaction: discord.Interaction, prompt: str):
+    author = interaction.user
+    channel = interaction.channel
+    logger.info('Received Image Command. Making Image...')
+    thinkingText = '**```Processing Response...```**'
+    try:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        # await asyncio.sleep(1)
+        thinkingText = '**```Filtering Prompt...```**'
+        await interaction.edit_original_response(content = thinkingText)
+        FilterArgs = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "system", "content": "You will be given an image generation prompt, and your job is to remake the prompt to make it follow OpenAI's safety system filters and not get blocked. Expand upon the original prompt by adding more detail and being more descriptive, but keeping the original intention of the prompt while also making the images look realistic unless otherwise specified."},
+                      {"role": "user", "content": prompt}],
+            stream=False
+        )
 
+        thinkingText = '**```Generating Image...```**'
+        await interaction.edit_original_response(content = thinkingText)
+        FilteredResponse = FilterArgs['choices'][0]['message']['content']
+        print(f'Creating Image with filtered Prompt: {FilteredResponse}')
+        response = openai.Image.create(
+            model="dall-e-3",
+            prompt=FilteredResponse,
+            size="1024x1024",
+            #quality="standard", # DALL-E 3 
+            #style="vivid", # DALL-E 3
+            n=1,
+        )
+        print('Image Created! Getting URL...')
+        image_url = response.data[0].url
+        # Create an embed object for the Discord message
+        print('Creating Embed...')
+        embed = discord.Embed(
+            title='Generated Image',
+            description='**Prompt:** ' + prompt,
+            color=discord.Color.blue()
+        )
+
+        embed.set_image(url=image_url)
+        embed.set_footer(text=f'Requested by {author.display_name}.')
+        # embed.set_author(name=author.display_name, icon_url=author.display_avatar.url)
+        logger.info('Image Embed: ' + embed.to_dict())
+
+        await interaction.edit_original_response(content=None, embed=embed)
+    except Exception as e:
+        await interaction.delete_original_response()
+        await channel.send('An error occurred while processing the command.', delete_after=5)
+            
 logger.info('Registered Commands!')
 
+@tree.command(guild=MY_GUILD, name="thread", description="Sends a button to start a new thread.")
+async def thread(interaction: discord.Interaction):
+    if interaction.channel.name == 'gloved-gpt':
+        await interaction.response.send_message("Click the button below to start a new chat with GlovedBot.", view=MyView(), ephemeral=True, delete_after=30)
 
-# @bot.command()
-# async def start_thread(ctx):
-#     if ctx.channel.name == 'gloved-gpt':
-#         await ctx.send("Click the button below to start a new chat with GlovedBot.", view=MyView())
-        
-# @bot.command()
-# async def image(ctx, *, arg):
-#     # Start typing; this will continue until the bot sends another message
-#     logger.info('Recieved Image Command. Making Image...')
-#     thinkingText = '**```Processing Response...```**'
-#     replyMessage = await ctx.reply(content=thinkingText)
-#     try:
-
-#         thinkingText = '**```Filtering Prompt...```**'
-#         await replyMessage.edit(content = thinkingText)
-#         FilterArgs = openai.ChatCompletion.create(
-#             model="gpt-4",
-#             messages=[{"role": "system", "content": "You will be given an image generation prompt, and your job is to remake the prompt to make it follow OpenAI's safety system filters and not get blocked, and expand upon the original prompt by adding more detail, but keeping the original intention of the prompt while also making the images look realistic unless otherwise specified."},
-#                       {"role": "user", "content": arg}],
-#             stream=False
-#         )
-
-#         thinkingText = '**```Generating Image```**'
-#         await replyMessage.edit(content = thinkingText)
-#         FilteredResponse = FilterArgs['choices'][0]['message']['content']
-#         logger.info(FilteredResponse)
-
-#         response = openai.Image.create(
-#             model="dall-e-3",
-#             prompt=FilteredResponse,
-#             size="1024x1024",
-#             quality="standard",
-#             n=1,
-#         )
-
-#         image_url = response.data[0].url
-#         logger.info(image_url)
-#         # Create an embed object for the Discord message
-#         embed = discord.Embed(
-#             title='Generated Image',
-#             description='**Prompt:** ' + arg,
-#             color=discord.Color.blue()
-#         )
-
-#         embed.set_image(url=image_url)
-#         embed.set_footer(text=f'Requested by {ctx.author.display_name}.')
-
-#         # Send the embed and stop typing
-#         thinkingText=''
-#         await replyMessage.delete()
-#         await ctx.reply(embed=embed)
-#     except Exception as e:
-#         # If something goes wrong, notify and stop typing
-#         await replyMessage.delete()
-#         await ctx.reply(f'Uh oh, shit hit the proverbial fan: {str(e)}')
-
-
+## Run Client
 client.run(DISCORD_BOT_TOKEN)
