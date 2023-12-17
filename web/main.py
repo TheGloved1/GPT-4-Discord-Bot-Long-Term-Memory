@@ -1,7 +1,9 @@
 from flask import Flask, render_template, request, session
 from flask_session import Session
 import os
-import openai
+from openai import OpenAI
+
+client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
 app = Flask(__name__)
 app.config["SESSION_TYPE"] = "filesystem"
@@ -17,17 +19,14 @@ def chat():
         user_input = request.form["user_input"]
         if user_input == '!reset':
             session["history"] = []
-        openai.api_key = os.environ['OPENAI_API_KEY']
 
         system_prompt = {"role": "system", "content": "You are a snarky, yet helpful assistant. "}
 
         # Add user input to history
         session['history'].append({"role": "user", "content": user_input})
         
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=system_prompt + session['history'],
-        )
+        response = client.chat.completions.create(model="gpt-4",
+        messages=system_prompt + session['history'])
         
         bot_response = response.choices[0].message["content"]
         

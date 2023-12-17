@@ -2,6 +2,9 @@ import asyncio
 from enum import Enum
 from dataclasses import dataclass
 import openai
+from openai import OpenAI
+
+client = OpenAI()
 import json
 from typing import Optional, List
 from src.constants import (
@@ -73,11 +76,9 @@ async def generate_completion_response(
             
         # You can rollback to using text-davincini-003 by swapping the active "response =" and "reply ="
 
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": rendered}],
-            stream=True
-        )
+        response = client.chat.completions.create(model="gpt-3.5-turbo",
+        messages=[{"role": "system", "content": rendered}],
+        stream=True)
 
         # Below for "text-davinci-003" model
         # reply = response.choices[0].text.strip()
@@ -106,7 +107,7 @@ async def generate_completion_response(
 
                 
         
-    except openai.error.InvalidRequestError as e:
+    except openai.InvalidRequestError as e:
         if "This model's maximum context length" in e.user_message:
             return CompletionData(
                 status=CompletionResult.TOO_LONG, reply_text=None, status_text=str(e)
