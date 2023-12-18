@@ -1,6 +1,9 @@
+from calendar import c
+import datetime
+from turtle import title
 import discord
-from discord import Button, ButtonStyle, Embed, Interaction, Message as DiscordMessage
-from discord.ui import Button, View
+from discord import Button, ButtonStyle, Embed, Interaction, Message as DiscordMessage, Thread
+from discord.ui import Button, View, Modal, InputText, Select
 import logging
 import asyncio
 from uuid import uuid4
@@ -45,6 +48,8 @@ logging.basicConfig(
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Bot()
+user_thread_counters = {}
+user_threads = {}
 
 # Ready
 @bot.event
@@ -60,8 +65,7 @@ async def on_ready():
             else:
                 messages.append(m)
         completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
-
-
+        
 def sendMessage(message: DiscordMessage, content: str):
     TextChannel = message.channel.type == discord.ChannelType.text
     if TextChannel:
@@ -83,10 +87,10 @@ class ConfirmView(discord.ui.View):
     async def cancel(self, button: discord.ui.Button, interaction: Interaction):
         self.value = False
         self.stop()
-
+        
 @bot.event            
 async def on_message(message: DiscordMessage):
-    if (message.author == bot.user) or message.author.bot: 
+    if (message.author == bot.user) or message.author.bot or message.author.system: 
         return
     OriginalMessage = message
     channel = message.channel
@@ -122,35 +126,37 @@ async def on_message(message: DiscordMessage):
                 if not (channel.name == 'gloved-gpt'):
                     return
         thinkingText = "**```Processing Message...```**"
-        
-        # <\>TODO: Before archiving the old thread, send a message to the user saying with a button to Confirm or Cancel the archiving</>
-        
+
         if message.channel.name == 'gloved-gpt':
             logger.info('gloved-gpt Channel Message Recieved!')
 
-            thread_name = f"{message.author.display_name}'s Chat"
-            # Check if there's already a thread with the same name
-            for thread in message.channel.threads:
-                if thread.name == thread_name:
-                    view = ConfirmView()
-                    confirmMessage = await message.reply("Are you sure you want to archive your old thread and create a new one?", view=view)
-                    await view.wait()  # Wait for the user to click a button
+            user_thread_count = len(user_threads.get(message.author.id, []))
+            logger.info(f'User: {message.author.name} Threads: {user_thread_count}')
+            
+            if user_thread_count >= 3:
+                view = ConfirmView()
+                confirmMessage = await message.reply("You have reached the limit of 3 threads. Are you sure you want to archive your oldest thread and create a new one?", view=view)
+                await view.wait()
 
-                    if view.value is True:
-                        # Archive the old thread
-                        await thread.archive()
-                        await confirmMessage.delete()
-                    else:
-                        await confirmMessage.delete()
-                        return
-
-            # Create the new thread
-            thread = await message.create_thread(name=thread_name)
-            interactive_response = await thread.send(thinkingText)
-        elif PublicThread and channel.parent.name == 'gloved-gpt': 
-            interactive_response = await sendMessage(message, thinkingText)
-        
-        
+                if view.value is True:
+                    oldest_thread = user_threads[message.author.id].pop(0)
+                    await oldest_thread.archive()
+                    await confirmMessage.delete()
+                    user_thread_counters[message.author.id] = 0
+                    
+                else:
+                    await confirmMessage.delete()
+                    return
+            thread_name = f"{message.author.name} - {user_thread_count + 1}"
+            
+            createdThread = await message.create_thread(name=thread_name)
+            
+            if message.author.id not in user_threads:
+                user_threads[message.author.id] = []
+                
+            user_threads[message.author.id].append(createdThread)
+            interactive_response = await createdThread.send(thinkingText)
+        message = await channel.fetch_message(message.id)
         # Start off the response message, this'll be the one we keep updating
         print('Embedding Message!')
         # save message as embedding, vectorize
@@ -211,16 +217,16 @@ async def on_message(message: DiscordMessage):
             logger.info('Public Thread Message Recieved!')
             channel_messages = [
                 discord_message_to_message(msg)
-                async for msg in channel.history(limit=MAX_MESSAGE_HISTORY)
+                async for msg in message.thread.history(limit=MAX_MESSAGE_HISTORY)
             ]
         else:
-            channel_messages = []
+            channel_messages = [discord_message_to_message(message)]
         # Check if the event message is not in a thread
+        logger.info(f'Checking if following message is in a thread: {message.content}')
         if message.thread is None:
             logger.info('Thread Message Recieved!')
-            # Convert the event message and add it to channel_messages
-            channel_messages.append(discord_message_to_message(message))
-            logger.info(message)
+            # channel_messages.append(discord_message_to_message(message))
+            logger.info(message.content)
 
         channel_messages = [x for x in channel_messages if x is not None]
         channel_messages.reverse()
@@ -241,6 +247,7 @@ async def on_message(message: DiscordMessage):
         
         rendered = prompt.render()
         print(rendered)
+        logger.info('Prompt Rendered!')
 
         thinkingText = "**```Creating Response...```** \n"
         await interactive_response.edit(content = thinkingText)
