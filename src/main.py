@@ -79,6 +79,13 @@ def sendMessage(message: DiscordMessage, content: str):
     else:
         return message.channel.send(content)
 
+async def messageInNamedChannel(message: DiscordMessage, name: str):
+    if message.channel.name:
+        if message.channel.name == name:
+            return True
+    else:
+        return False
+
 class ConfirmView(discord.ui.View):
     def __init__(self):
         super().__init__()
@@ -107,7 +114,7 @@ async def on_message(message: DiscordMessage):
     MentionContent = message.content.removeprefix('<@938447947857821696> ')
     if message.content.startswith('@everyone'):
         return
-    if message.content == "5?resetchannel":
+    if message.content == "?resetchannel":
         if not TextChannel:
             return
         channel_position = channel.position
@@ -133,7 +140,7 @@ async def on_message(message: DiscordMessage):
                     return
         thinkingText = "**```Processing Message...```**"
 
-        if message.channel.name == 'gloved-gpt':
+        if TextChannel and message.channel.name == 'gloved-gpt':
             logger.info('gloved-gpt Channel Message Recieved!')
 
             user_thread_count = len(user_threads.get(message.author.id, []))
@@ -314,7 +321,7 @@ async def restart(ctx):
         
 # Image Command
 @bot.slash_command(description="Generate an image from a prompt.")
-async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from."), showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response.") = False, message_id: discord.Option(float, description="Message with image to edit. (Copy/Paste Message ID)") = None):
+async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from."), showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response.") = False, message_id: discord.Option(int, description="Message with image to edit. (Copy/Paste Message ID)") = None):
     author = ctx.author
     channel = ctx.channel
     if not message_id == DiscordMessage.id:
