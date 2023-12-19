@@ -9,3 +9,4 @@ src/memories/
 src/notes/
 
 requirements.txt
+database.json

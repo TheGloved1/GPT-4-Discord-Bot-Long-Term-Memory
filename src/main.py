@@ -2,8 +2,11 @@ from cProfile import label
 from calendar import c
 import datetime
 import io
+import json
 from os import name
 from select import epoll
+import signal
+import sys
 from turtle import title
 import aiohttp
 import discord
@@ -56,13 +59,42 @@ bot = discord.Bot()
 user_thread_counters = {}
 user_threads = {}
 
+
+
+try:
+    with open('database.json', 'r') as f:
+        database = json.load(f)
+    logger.info(f'Database loaded!')
+    logger.info(f'Database: {database}') ## ONLY FOR DEBUGGING ##
+except FileNotFoundError:
+    # If the file does not exist, start with an empty database
+    database = {}
+    with open('database.json', 'w') as f:
+        json.dump(database, f)
+    logger.info('Database created!')
+
+
+async def save_database_loop():
+    while True:
+        with open('database.json', 'w') as f:
+            json.dump(database, f)
+        await asyncio.sleep(60)  # Wait for 60 seconds
+        logger.info('Database saved!')
+
+def save_database():
+    with open('database.json', 'w') as f:
+        json.dump(database, f)
+    logger.info('Database saved!')
+
+
 # Ready
 @bot.event
 async def on_ready():
     logger.info(f'Logged in as {bot.user} (ID: {bot.user.id})')
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.streaming, name="Gloved-GPT", details="Chat with me!", url="[gloved-gpt](https://discord.com/channels/937806100546351174/1184694704001011754)"))
+    
     completion.MY_BOT_NAME = bot.user.name
     completion.MY_BOT_EXAMPLE_CONVOS = []
+    
     for c in EXAMPLE_CONVOS:
         messages = []
         for m in c.messages:
@@ -71,6 +103,17 @@ async def on_ready():
             else:
                 messages.append(m)
         completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
+        
+    bot.loop.create_task(save_database_loop())
+    logger.info('Database autosave loop started!')
+
+        
+@bot.event
+async def on_disconnect():
+    # Code to run before the bot logs out
+    logger.info("Bot is disconnecting...")
+    # Additional code here
+
         
 def sendMessage(message: DiscordMessage, content: str):
     TextChannel = message.channel.type == discord.ChannelType.text
@@ -85,6 +128,11 @@ async def messageInNamedChannel(message: DiscordMessage, name: str):
             return True
     else:
         return False
+
+async def updateDatabase(key, value):
+    database[key] = value
+    await save_database()
+    logger.info(f'Updated database with {key}: {value}')
 
 class ConfirmView(discord.ui.View):
     def __init__(self):
@@ -305,37 +353,37 @@ logger.info('Registered Events!')
 
 ## Commands
 # Restart Command
-@bot.slash_command(guild=MY_GUILD, name="restart", description="Restarts the bot.")
-async def restart(ctx):
+@bot.slash_command(description="Stops the bot.")
+async def shutdown(ctx):
     author = ctx.author
     # Check if the author has the necessary permissions to restart the bot
     if author.guild_permissions.administrator:
-        await ctx.respond("Restarting...")
+        await ctx.respond(f'{bot.user.display_name} is shutting down.')
         # Here you can add any code you want to run before restarting
         # For example, you might want to log that the bot is restarting
-        logger.info('Bot is restarting...')
+        logger.info(f'{bot.user.display_name} is shutting down.')
         # Finally, stop the bot
         await bot.close()
     else:
-        await ctx.channel.send("You don't have permission to restart the bot.")
+        await ctx.respond("You don't have permission to stop me. Hehe.")
         
 # Image Command
 @bot.slash_command(description="Generate an image from a prompt.")
-async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from."), showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response.") = False, message_id: discord.Option(int, description="Message with image to edit. (Copy/Paste Message ID)") = None):
+async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from."), message_id: discord.Option(str, description="Message with image to edit. (Copy/Paste Message ID)") = None, showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response.") = False):
     author = ctx.author
     channel = ctx.channel
     if not message_id == DiscordMessage.id:
-        ctx.respond('Please provide a valid message ID.').delete_after(10)
+        await ctx.respond('Please provide a valid message ID.').delete_after(10)
         return
     message = await channel.fetch_message(message_id)
     logger.info('Received Image Command. Making Image...')
     # await asyncio.sleep(1)
     thinkingText = '**```Filtering Prompt...```**'
-    await ctx.respond(thinkingText)
+    ImageResponse = await ctx.respond(thinkingText)
     FilterArgs = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "system", "content": "You will be given an image generation prompt, and your job is to remake the prompt to make it follow OpenAI's safety system filters and not get blocked. Expand upon the original prompt by adding more detail and being more descriptive. Don't go over 3 sentences."}, {"role": "user", "content": prompt}], stream=False)
 
     thinkingText = '**```Generating Image...```**'
-    await ctx.edit(content = thinkingText)
+    await ImageResponse.edit(content = thinkingText)
     FilteredResponse = FilterArgs.choices[0].message.content
     print(f'Creating Image with filtered Prompt: {FilteredResponse}')
     
@@ -407,9 +455,12 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
         embed.set_footer(text=f'Requested by {author.display_name}.', icon_url=ctx.author.display_avatar.url)  # Fix: Added closing parenthesis
         logger.info('Image Embed: ' + embed.to_dict()['image']['url'])
 
-        await ctx.edit(content=None, embed=embed)
+        await ImageResponse.edit(content=None, embed=embed)
         logger.info('Image Sent!')
     
 logger.info('Registered Commands!')
-## Run Client
-bot.run(DISCORD_BOT_TOKEN)
+try:
+    bot.run(DISCORD_BOT_TOKEN)
+finally:
+    save_database()
+    logger.info(f'Script Stopped!')
