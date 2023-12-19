@@ -4,5 +4,7 @@
         "."
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "editor.fontFamily": "'Cascadia Mono'",
+    "editor.fontSize": 12
 }

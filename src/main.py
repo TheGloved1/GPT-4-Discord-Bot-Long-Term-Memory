@@ -1,6 +1,11 @@
+from cProfile import label
 from calendar import c
 import datetime
+import io
+from os import name
+from select import epoll
 from turtle import title
+import aiohttp
 import discord
 from discord import Button, ButtonStyle, Embed, Interaction, Message as DiscordMessage, Thread
 from discord.ui import Button, View, Modal, InputText, Select
@@ -55,6 +60,7 @@ user_threads = {}
 @bot.event
 async def on_ready():
     logger.info(f'Logged in as {bot.user} (ID: {bot.user.id})')
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.streaming, name="Gloved-GPT", details="Chat with me!", url="[gloved-gpt](https://discord.com/channels/937806100546351174/1184694704001011754)"))
     completion.MY_BOT_NAME = bot.user.name
     completion.MY_BOT_EXAMPLE_CONVOS = []
     for c in EXAMPLE_CONVOS:
@@ -101,7 +107,7 @@ async def on_message(message: DiscordMessage):
     MentionContent = message.content.removeprefix('<@938447947857821696> ')
     if message.content.startswith('@everyone'):
         return
-    if message.content == "?resetchannel":
+    if message.content == "5?resetchannel":
         if not TextChannel:
             return
         channel_position = channel.position
@@ -280,7 +286,7 @@ async def on_message(message: DiscordMessage):
         
         await interactive_response.edit(content = full_reply_content)
         thinkingText = "**```Response Finished!```** \n"
-        logger.info(thinkingText)
+        logger.info(full_reply_content)
         responseReply = await message.reply(thinkingText)
         await asyncio.sleep(1.5)
         await responseReply.delete()
@@ -308,9 +314,13 @@ async def restart(ctx):
         
 # Image Command
 @bot.slash_command(description="Generate an image from a prompt.")
-async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from."), showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response.") = False):
+async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from."), showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response.") = False, message_id: discord.Option(float, description="Message with image to edit. (Copy/Paste Message ID)") = None):
     author = ctx.author
     channel = ctx.channel
+    if not message_id == DiscordMessage.id:
+        ctx.respond('Please provide a valid message ID.').delete_after(10)
+        return
+    message = await channel.fetch_message(message_id)
     logger.info('Received Image Command. Making Image...')
     # await asyncio.sleep(1)
     thinkingText = '**```Filtering Prompt...```**'
@@ -321,34 +331,78 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
     await ctx.edit(content = thinkingText)
     FilteredResponse = FilterArgs.choices[0].message.content
     print(f'Creating Image with filtered Prompt: {FilteredResponse}')
-    response = client.images.generate(
-        model="dall-e-3",
-        prompt=FilteredResponse,
-        size="1024x1024",
-        #quality="standard", # DALL-E 3 
-        #style="vivid", # DALL-E 3
-        n=1,
-    )
-    print('Image Created! Getting URL...')
-    image_url = response.data[0].url
-    # Create an embed object for the Discord message
-    print('Creating Embed...')
-    embed = discord.Embed(
-        title=f'Generated an Image',
-        description='**Prompt:** ' + prompt,
-        color=discord.Colour.blurple(),
-    )
-    if showfilteredprompt:
-        embed.add_field(name='Filtered Prompt', value=FilteredResponse, inline=False)
-    embed.set_author(name="GlovedBot", icon_url=bot.user.display_avatar.url)
-    embed.set_thumbnail(url=bot.user.display_avatar.url)
-    embed.set_image(url=image_url)
-    embed.set_footer(text=f'Requested by {author.display_name}.', icon_url=ctx.author.display_avatar.url)  # Fix: Added closing parenthesis
-    logger.info('Image Embed: ' + embed.to_dict()['image']['url'])
+    
+    if message:
+        if message.embeds:
+            logger.info('Reference Message Found. Using Reference...')
+            image_url = message.embeds[0].image.url
 
-    await ctx.edit(content=None, embed=embed)
-    logger.info('Image Sent!')
+            # Download the image
+            async with aiohttp.ClientSession() as session:
+                async with session.get(image_url) as resp:
+                    image_data = await resp.read()
 
+            # Create a BytesIO object from the image data
+            image = io.BytesIO(image_data)
+
+            response = client.images.edit(
+                model="dall-e-2",
+                image=image,
+                mask=None,
+                prompt=FilteredResponse,
+                size="1024x1024",
+                n=1,
+            )
+            print('Image Created! Getting URL...')
+            image_url = response.data[0].url
+            # Create an embed object for the Discord message
+            print('Creating Embed...')
+            embed = discord.Embed(
+                title=f'Generated an Image',
+                description='**Prompt:** ' + prompt,
+                color=discord.Colour.blurple(),
+            )
+            if showfilteredprompt:
+                embed.add_field(name='Filtered Prompt', value=FilteredResponse, inline=False)
+            embed.set_author(name="GlovedBot", icon_url=bot.user.display_avatar.url)
+            embed.set_thumbnail(url=bot.user.display_avatar.url)
+            embed.set_image(url=image_url)
+            embed.set_footer(text=f'Requested by {author.display_name}.', icon_url=ctx.author.display_avatar.url)  # Fix: Added closing parenthesis
+            logger.info('Image Embed: ' + embed.to_dict()['image']['url'])
+
+            await message.reply(content=None, embed=embed)
+            logger.info('Image Sent!')
+    else: 
+        logger.info('No Reference Message Found. Using Prompt...')
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=FilteredResponse,
+            size="1024x1024",
+            #quality="standard", # DALL-E 3 
+            #style="vivid", # DALL-E 3
+            n=1,
+        )
+        
+        print('Image Created! Getting URL...')
+        image_url = response.data[0].url
+        # Create an embed object for the Discord message
+        print('Creating Embed...')
+        embed = discord.Embed(
+            title=f'Generated an Image',
+            description='**Prompt:** ' + prompt,
+            color=discord.Colour.blurple(),
+        )
+        if showfilteredprompt:
+            embed.add_field(name='Filtered Prompt', value=FilteredResponse, inline=False)
+        embed.set_author(name="GlovedBot", icon_url=bot.user.display_avatar.url)
+        embed.set_thumbnail(url=bot.user.display_avatar.url)
+        embed.set_image(url=image_url)
+        embed.set_footer(text=f'Requested by {author.display_name}.', icon_url=ctx.author.display_avatar.url)  # Fix: Added closing parenthesis
+        logger.info('Image Embed: ' + embed.to_dict()['image']['url'])
+
+        await ctx.edit(content=None, embed=embed)
+        logger.info('Image Sent!')
+    
 logger.info('Registered Commands!')
 ## Run Client
 bot.run(DISCORD_BOT_TOKEN)
