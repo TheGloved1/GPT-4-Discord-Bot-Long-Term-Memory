@@ -7,6 +7,8 @@ __pycache__/
 src/chat_logs/
 src/memories/
 src/notes/
+src/images/
 
 requirements.txt
 database.json
+mask.png
