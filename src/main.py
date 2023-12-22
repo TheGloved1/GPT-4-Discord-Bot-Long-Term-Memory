@@ -5,28 +5,15 @@ It contains the code for initializing the bot, handling events, and interacting 
 The code includes functions for saving and updating the database, handling message events, and downloading images.
 It also defines a custom view class for displaying confirmation prompts and a view for sending messages to the appropriate channel.
 """
-from fileinput import filename
 import os
-from cProfile import label
-from calendar import c
-import datetime
-import io
-from io import BytesIO
 import json
-from os import name
-from select import epoll
-import signal
-import sys
-from turtle import title
 import aiohttp
 import discord
-from discord import Button, ButtonStyle, Embed, Interaction, Message as DiscordMessage, Thread
-from discord.ui import Button, View, Modal, InputText, Select
+from discord import Interaction, Message as DiscordMessage
 import logging
 import asyncio
 from uuid import uuid4
 from time import time
-from httpx import delete
 from openai import OpenAI
 from PIL import Image
 from src.base import Message, Conversation, Prompt
@@ -36,7 +23,6 @@ from src.constants import (
     EXAMPLE_CONVOS,
     MAX_MESSAGE_HISTORY,
     OPENAI_API_KEY,
-    MY_GUILD,
     
 )
 
@@ -69,8 +55,6 @@ logging.basicConfig(
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Bot()
-user_thread_counters = {}
-user_threads = {}
 images_folder = 'images'
 
 try:
@@ -78,11 +62,11 @@ try:
         database = json.load(f)
         
     logger.info(f'Database loaded!')
-    # logger.info(f'Database: {database}') # ONLY FOR DEBUGGING DATABASE
+    # logger.info(f'Database: {database}') # FOR DEBUGGING
     
 except FileNotFoundError:
-    # If the file does not exist, start with an empty database
-    database = {}
+    logger.info('Database not found. Creating new database...')
+    database = {'images': {}, 'user_threads': {}}
     with open('database.json', 'w') as f:
         json.dump(database, f, indent=4)
         
@@ -96,7 +80,7 @@ async def save_database_loop():
         with open('database.json', 'w') as f:
             json.dump(database, f, indent=4)
             
-        await asyncio.sleep(5)  # Wait for 5 seconds
+        await asyncio.sleep(120)
 
 def save_database():
     """
@@ -131,6 +115,10 @@ async def on_ready():
         completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
     bot.loop.create_task(save_database_loop())
     logger.info('Database Autosave Started!')
+    
+@bot.event
+async def on_connect():
+    logger.info(f"{bot.user.name} connected.")
 
 async def on_disconnect():
     """
@@ -282,44 +270,60 @@ async def on_message(message: DiscordMessage):
         return
     
     try:
-        
         if message.content.startswith('?'):
             return
-        
-        if (TextChannel):
-            if not (MentionsBot):
-                if not (channel.name == 'gloved-gpt'):
-                    return
                 
         thinkingText = "**```Processing Message...```**"
         if not message.guild or (TextChannel and message.channel.name == 'gloved-gpt'):
-            if message.guild:
+            if message.guild and message.channel.name == 'gloved-gpt':
                 logger.info('gloved-gpt Channel Message Recieved!')
-                user_thread_count = len(user_threads.get(message.author.id, []))
+                if message.author.id not in database['user_threads']:
+                    database['user_threads'][message.author.id] = []
+                    logger.info(f'Added user {message.author.name} to database')
+                thread_ids = database['user_threads'][message.author.id]
+                valid_thread_ids = []
+                for thread_id in thread_ids[:]:
+                    try:
+                        await message.guild.fetch_channel(thread_id)
+                        valid_thread_ids.append(thread_id)
+                        
+                    except discord.NotFound:
+                        logger.info(f'Removed thread {thread_id} from database')
+                        
+                thread_ids = valid_thread_ids
+                database['user_threads'][message.author.id] = thread_ids
+                save_database()
+                await asyncio.sleep(1)
+                user_thread_count = len(thread_ids)
                 logger.info(f'User: {message.author.name} Threads: {user_thread_count}')
                 if user_thread_count >= 3:
                     view = ConfirmView()
                     confirmMessage = await message.reply("You have reached the limit of 3 threads. Are you sure you want to archive your oldest thread and create a new one?", view=view)
                     await view.wait()
                     if view.value is True:
-                        oldest_thread = user_threads[message.author.id].pop(0)
-                        await oldest_thread.archive()
+                        oldest_thread_id, oldest_message_id = thread_ids.pop(0)
+                        oldest_thread = await message.guild.fetch_channel(oldest_thread_id)
+                        await oldest_thread.delete()
+                        oldest_message = await message.channel.fetch_message(oldest_message_id)
+                        await oldest_message.delete()
+                        logger.info(f'Removed thread {oldest_thread_id} from database')
                         await confirmMessage.delete()
-                        user_thread_counters[message.author.id] = 0
                         
                     else:
                         await confirmMessage.delete()
                         return
                     
+                save_database()
                 thread_name = f"{message.author.name} - {user_thread_count + 1}"
                 createdThread = await message.create_thread(name=thread_name)
-                if message.author.id not in user_threads:
-                    user_threads[message.author.id] = []
-                    
-                user_threads[message.author.id].append(createdThread)
+                thread_ids.append((createdThread.id, message.id))
+                save_database()
                 interactive_response = await createdThread.send(thinkingText)
-            else:
-                interactive_response = await channel.send(thinkingText)
+                logger.info('Thread Created!')
+        if not TextChannel:
+            logger.info('Non-Text Channel Message Recieved!')
+            interactive_response = await channel.send(thinkingText)
+            
         message = await channel.fetch_message(message.id)
         print('Embedding Message!')
         vector = gpt3_embedding(message)
@@ -359,11 +363,11 @@ async def on_message(message: DiscordMessage):
         )
         thinkingText = "**```Reading Previous Messages...```**"
         await interactive_response.edit(content = thinkingText)
-        if PublicThread and message.channel.parent.name == 'gloved-gpt':
+        if not TextChannel:
             logger.info('Public Thread Message Recieved!')
             channel_messages = [
                 discord_message_to_message(msg)
-                async for msg in message.thread.history(limit=MAX_MESSAGE_HISTORY)
+                async for msg in message.channel.history(limit=MAX_MESSAGE_HISTORY)
                 
             ]
         else:
@@ -373,7 +377,7 @@ async def on_message(message: DiscordMessage):
         if message.thread is None:
             logger.info('Thread Message Recieved!')
             logger.info(message.content)
-
+            
         channel_messages = [x for x in channel_messages if x is not None]
         channel_messages.reverse()
         channel_messages.insert(0, message_notes)
@@ -385,6 +389,7 @@ async def on_message(message: DiscordMessage):
         prompt = Prompt(
             header=Message(
                 "System", f"Instructions for {MY_BOT_NAME}: {BOT_INSTRUCTIONS}"
+                
             ),
             examples=MY_BOT_EXAMPLE_CONVOS,
             convo=Conversation(channel_messages + [Message(f"{timestring} {MY_BOT_NAME}")]),
@@ -423,7 +428,7 @@ async def on_message(message: DiscordMessage):
         
         await interactive_response.edit(content = full_reply_content)
         thinkingText = "**```Response Finished!```** \n"
-        logger.info(full_reply_content)
+        print('GlovedBot: ' + full_reply_content)
         responseReply = await message.reply(thinkingText)
         await asyncio.sleep(1.5)
         await responseReply.delete()
@@ -491,9 +496,9 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             return
     if message:
         message_id_str = str(message_id)
-        if message_id_str in database and 'filteredprompt' in database[message_id_str] and 'prompt' in database[message_id_str]:
-            original_filtered_prompt = database[message_id_str]['filteredprompt']
-            original_prompt = database[message_id_str]['prompt']
+        if message_id_str in database and 'filteredprompt' in database['images'][message_id_str] and 'prompt' in database['images'][message_id_str]:
+            original_filtered_prompt = database['images'][message_id_str]['filteredprompt']
+            original_prompt = database['images'][message_id_str]['prompt']
             logger.info('Original Filtered Prompt Found!')
             logger.info(f'Original Filtered Prompt: \n{original_filtered_prompt}')
         else:
@@ -583,7 +588,7 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             ImageResponse = await ctx.edit(content=None, embed=embed)
             logger.info('Image Sent! (ID: ' + str(ImageResponse.id) + ')')
             await download_image(image_url, images_folder, f'{ImageResponse.id}.png')
-            database[ImageResponse.id] = {
+            database['images'][ImageResponse.id] = {
                 'prompt': prompt,
                 'filteredprompt': FilteredResponse, 
                 'image': image_url,
@@ -623,7 +628,7 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
         ImageResponse = await ctx.edit(content=None, embed=embed)
         logger.info('Image Sent! (ID: ' + str(ImageResponse.id) + ')')
         await download_image(image_url, images_folder, f'{ImageResponse.id}.png')
-        database[ImageResponse.id] = {
+        database['images'][ImageResponse.id] = {
             'prompt': prompt,
             'filteredprompt': FilteredResponse, 
             'image': image_url

@@ -5,6 +5,7 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "editor.fontFamily": "'Cascadia Mono'",
-    "editor.fontSize": 12
+    "editor.fontSize": 12,
+    "editor.fontVariations": false,
+    "editor.fontFamily": "'MesloLGM Nerd Font'",
 }
