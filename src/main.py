@@ -10,6 +10,7 @@ import json
 import aiohttp
 import discord
 from discord import Interaction, Message as DiscordMessage
+from discord.utils import get as discord_get
 import logging
 import asyncio
 from uuid import uuid4
@@ -115,11 +116,40 @@ async def on_ready():
         completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
     bot.loop.create_task(save_database_loop())
     logger.info('Database Autosave Started!')
-    
+    for guild in bot.guilds:
+        logger.info(f'Guild: {guild.name} (ID: {guild.id})')
+        try:
+            role = discord_get(guild.roles, name='GlovedBot Admin')
+            if role is None:
+                role = await guild.create_role(name='GlovedBot Admin', permissions=discord.Permissions(administrator=True))
+                logger.info('Created GlovedBot Admin role!')
+                gluvz = guild.fetch_member(504395955273990158)
+                if gluvz is not None:
+                    logger.info('Found Gluvz (ID: 504395955273990158) in guild!')
+                    await gluvz.add_roles(role)
+                    logger.info('Added role (GlovedBot Admin) to Gluvz!')
+                    
+                else:
+                    logger.info('Gluvz not found in guild!')
+                    
+            else:
+                logger.info('Found GlovedBot Admin role!')
+                
+        except Exception as e:
+            logger.info('Failed to add role or get role for Gluvz!')
+            
 @bot.event
 async def on_connect():
-    logger.info(f"{bot.user.name} connected.")
-
+    logger.info(f"{bot.user.name} connected to Discord!")
+    
+@bot.event
+async def on_guild_join(guild):
+    logger.info(f"Joined guild {guild.name} (ID: {guild.id})")
+    category = await guild.create_category("🤖| === GLOVEDBOT === |🤖")
+    await category.create_text_channel("gloved-gpt")
+    await category.create_text_channel("gloved-images")
+    logger.info(f"Created channels in guild {guild.name} (ID: {guild.id})")
+    
 async def on_disconnect():
     """
     Function called when the bot disconnects from the server.
@@ -274,55 +304,77 @@ async def on_message(message: DiscordMessage):
             return
                 
         thinkingText = "**```Processing Message...```**"
-        if not message.guild or (TextChannel and message.channel.name == 'gloved-gpt'):
-            if message.guild and message.channel.name == 'gloved-gpt':
+        
+        # <TODO> Add functionality for adding guild IDs to database
+        
+        if (TextChannel and message.channel.name == 'gloved-gpt'):
+            logger.info('Message is not in the gloved-gpt channel or is not in a guild. Skipping...')
+            if message.channel.type == discord.ChannelType.text and message.channel.name == 'gloved-gpt':
+                if 'overflow_counts' not in database:
+                    database['overflow_counts'] = {}
+                if message.author.id not in database['overflow_counts']:
+                    database['overflow_counts'][message.author.id] = 0
                 logger.info('gloved-gpt Channel Message Recieved!')
                 if message.author.id not in database['user_threads']:
                     database['user_threads'][message.author.id] = []
                     logger.info(f'Added user {message.author.name} to database')
-                thread_ids = database['user_threads'][message.author.id]
-                valid_thread_ids = []
-                for thread_id in thread_ids[:]:
+                threads = database['user_threads'][message.author.id]
+                valid_threads = []
+                for thread in threads[:]:
                     try:
-                        await message.guild.fetch_channel(thread_id)
-                        valid_thread_ids.append(thread_id)
+                        await message.guild.fetch_channel(thread["thread_id"])
+                        valid_threads.append(thread)
                         
                     except discord.NotFound:
-                        logger.info(f'Removed thread {thread_id} from database')
+                        # logger.info(f'Removed thread {thread["thread_id"]} from database')
+                        logger.info(f'Thread (ID: {thread["thread_id"]}) not found!')
                         
-                thread_ids = valid_thread_ids
-                database['user_threads'][message.author.id] = thread_ids
+                threads = valid_threads
+                database['user_threads'][message.author.id] = threads
                 save_database()
                 await asyncio.sleep(1)
-                user_thread_count = len(thread_ids)
+                user_thread_count = len(threads)
                 logger.info(f'User: {message.author.name} Threads: {user_thread_count}')
                 if user_thread_count >= 3:
                     view = ConfirmView()
                     confirmMessage = await message.reply("You have reached the limit of 3 threads. Are you sure you want to archive your oldest thread and create a new one?", view=view)
                     await view.wait()
                     if view.value is True:
-                        oldest_thread_id, oldest_message_id = thread_ids.pop(0)
-                        oldest_thread = await message.guild.fetch_channel(oldest_thread_id)
-                        await oldest_thread.delete()
+                        oldest_thread = threads.pop(0)
+                        oldest_thread_id = oldest_thread['thread_id']
+                        oldest_message_id = oldest_thread['message_id']
+                        oldest_thread_channel = await message.guild.fetch_channel(oldest_thread_id)
+                        await oldest_thread_channel.delete()
                         oldest_message = await message.channel.fetch_message(oldest_message_id)
                         await oldest_message.delete()
                         logger.info(f'Removed thread {oldest_thread_id} from database')
                         await confirmMessage.delete()
+                        database['overflow_counts'][message.author.id] += 1
                         
                     else:
                         await confirmMessage.delete()
                         return
                     
+                else:
+                    database['overflow_counts'][message.author.id] = 0
+                    
                 save_database()
-                thread_name = f"{message.author.name} - {user_thread_count + 1}"
+                database['user_threads'][message.author.id] = threads
+                user_thread_count = len(threads)
+                overflow_count = database['overflow_counts'][message.author.id]
+                thread_name = f"{message.author.name} - {user_thread_count + 1 + overflow_count}"
                 createdThread = await message.create_thread(name=thread_name)
-                thread_ids.append((createdThread.id, message.id))
+                threads.append({'thread_id': createdThread.id, 'message_id': message.id})
                 save_database()
                 interactive_response = await createdThread.send(thinkingText)
                 logger.info('Thread Created!')
-        if not TextChannel:
-            logger.info('Non-Text Channel Message Recieved!')
+        elif isinstance(message.channel, discord.DMChannel) or (message.channel.type == discord.ChannelType.public_thread and message.channel.parent.name == 'gloved-gpt'):
+            logger.info('Message is DM or User Thread. Processing...')
             interactive_response = await channel.send(thinkingText)
+            
+        else:
+            # logger.info(f'Message (ID: {message.id}) is not in the gloved-gpt channel or is not in a guild. Skipping...')
+            return
             
         message = await channel.fetch_message(message.id)
         print('Embedding Message!')
@@ -348,7 +400,7 @@ async def on_message(message: DiscordMessage):
             
         else:
             print("The list does not have enough elements to access the second-to-last element.")
-
+            
         message_notes = Message(user='memories', text=current_notes)
         context_notes = None
         if len(notes_history) >= 2:
