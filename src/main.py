@@ -630,6 +630,7 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
         FilteredMessage = [
                 {"role": "system", "content": "You will be given an image generation prompt, and your job is to edit the prompt to make it loosely comply with OpenAI's safety system filters. Expand upon the original prompt by adding more detail and being more descriptive. Don't go over 3 sentences."}, 
                 {"role": "user", "content": prompt}
+                
             ]
         
     logger.info('Received Image Command. Processing...')
