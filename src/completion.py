@@ -17,8 +17,6 @@ from src.base import Message, Prompt, Conversation
 from src.utils import split_into_shorter_messages, logger
 from datetime import datetime
 from src.memory import (
-    gpt3_response_embedding, 
-    save_json,
     timestamp_to_datetime
     )
 

@@ -13,5 +13,15 @@ GlovedBot is a GPT-based Discord bot. It uses the OpenAI API to generate respons
 - Works in DMs
 
 ## Credits
-### Thanks to reality-comes for creating the base of this personal project
+### Long-term Memory
 https://github.com/reality-comes/GPT-4-Discord-Bot-Long-Term-Memory
+
+## Usage
+```
+sudo apt install nodemon
+
+git clone https://github.com/TheGloved1/gpt-bot.git
+
+cd gpt-bot && nodemon -e py,txt --ignore logs.txt --exec bot-env/bin/python -m src.main > logs.txt 2>&1
+```
+

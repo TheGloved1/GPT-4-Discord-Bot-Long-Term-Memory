@@ -18,11 +18,12 @@ CONFIG: Config = dacite.from_dict(
 BOT_NAME = CONFIG.name
 BOT_INSTRUCTIONS = CONFIG.instructions
 EXAMPLE_CONVOS = CONFIG.example_conversations
-MY_GUILD = discord.Object(id=937806100546351174)
+MY_GUILD = discord.Object(id=os.environ["GUILD_ID"])
 
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 DISCORD_CLIENT_ID = os.environ["DISCORD_CLIENT_ID"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+OWNER_ID = os.environ["OWNER_ID"]
 
 ALLOWED_CHANNEL_NAMES: List[str] = []
 channel_names = os.environ["ALLOWED_CHANNEL_NAMES"].split(",")
@@ -40,3 +41,6 @@ MAX_MESSAGE_HISTORY = 10
 MAX_CHARS_PER_REPLY_MSG = (
     1500  # discord has a 2k limit, we just break message into 1.5k
 )
+
+MY_BOT_NAME = BOT_NAME
+MY_BOT_EXAMPLE_CONVOS = EXAMPLE_CONVOS

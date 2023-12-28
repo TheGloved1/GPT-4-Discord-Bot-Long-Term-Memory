@@ -23,10 +23,12 @@ from PIL import Image
 from src.base import Message, Conversation, Prompt
 from src.constants import (
     BOT_INSTRUCTIONS,
+    BOT_NAME,
     DISCORD_BOT_TOKEN,
     EXAMPLE_CONVOS,
     MAX_MESSAGE_HISTORY,
     OPENAI_API_KEY,
+    OWNER_ID,
     
 )
 
@@ -37,7 +39,8 @@ from src.utils import (
 )
 
 from src import completion
-from src.completion import MY_BOT_EXAMPLE_CONVOS, MY_BOT_NAME
+from src import constants
+from src.constants import MY_BOT_EXAMPLE_CONVOS, MY_BOT_NAME
 from src.memory import (
     gpt3_embedding,
     save_json, 
@@ -62,6 +65,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 images_folder = 'images'
 edit_mask = f"{images_folder}/mask.png"
 elevenlabs.set_api_key("591720b694f78a02acb4b97aae6c3d83")
+disconnect_time = None
 
 try:
     with open('database.json', 'r') as f:
@@ -102,6 +106,16 @@ def save_database():
     logger.info('Database saved!')
 
 @bot.event
+async def on_disconnect():
+    """
+    Function called when the bot disconnects from the server.
+    Saves the database and logs a message indicating that the script has stopped.
+    """
+    save_database()
+    bot.disconnect_time = asyncio.get_event_loop().time()
+    logger.info(f'Script Stopped!')
+
+@bot.event
 async def on_ready():
     """
     Event handler called when the bot is ready to start processing events.
@@ -109,39 +123,46 @@ async def on_ready():
     and starts the database autosave loop.
     """
     logger.info(f'Logged in as {bot.user} (ID: {bot.user.id})')
+    if hasattr(bot, 'disconnect_time') and asyncio.get_event_loop().time() - bot.disconnect_time > 60 * 2:  # 2 minutes
+        print("Bot was disconnected for too long, stopping...")
+        await bot.close()
     completion.MY_BOT_NAME = bot.user.name
     completion.MY_BOT_EXAMPLE_CONVOS = []
     for c in EXAMPLE_CONVOS:
         messages = []
         for m in c.messages:
-            if m.user == "GlovedBot":
+            if m.user == BOT_NAME:
                 messages.append(Message(user=bot.user.name, text=m.text))
+                
             else:
                 messages.append(m)
+                
         completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
+        
     bot.loop.create_task(save_database_loop())
     logger.info('Database Autosave Started!')
     for guild in bot.guilds:
         logger.info(f'Guild: {guild.name} (ID: {guild.id})')
         try:
-            role = discord_get(guild.roles, name='GlovedBot Admin')
+            role = discord_get(guild.roles, name=f'{bot.user.name} Admin')
             if role is None:
-                role = await guild.create_role(name='GlovedBot Admin', permissions=discord.Permissions(administrator=True))
+                role = await guild.create_role(name=f'{bot.user.name} Admin', permissions=discord.Permissions(administrator=True))
                 logger.info('Created GlovedBot Admin role!')
-                gluvz = guild.fetch_member(504395955273990158)
-                if gluvz is not None:
-                    logger.info('Found Gluvz (ID: 504395955273990158) in guild!')
-                    await gluvz.add_roles(role)
-                    logger.info('Added role (GlovedBot Admin) to Gluvz!')
+                owner = guild.fetch_member(OWNER_ID)
+                if owner is not None:
+                    logger.info(f'Found {owner.name} (ID: {OWNER_ID}) in guild!')
+                    await owner.add_roles(role)
+                    logger.info(f'Added role ({bot.user.name} Admin) to {owner.name}!')
                     
                 else:
-                    logger.info('Gluvz not found in guild!')
+                    logger.info(f'Owner not found in guild!')
                     
             else:
-                logger.info('Found GlovedBot Admin role!')
+                logger.info(f'Found {bot.user.name} Admin role!')
                 
         except Exception as e:
-            logger.info('Failed to add role or get role for Gluvz!')
+            logger.info(f'Failed to add or get role for Owner!')
+    logger.info(f'{bot.user.name} is ready!')
             
 @bot.event
 async def on_connect():
@@ -154,14 +175,6 @@ async def on_guild_join(guild):
     await category.create_text_channel("gloved-gpt")
     await category.create_text_channel("gloved-images")
     logger.info(f"Created channels in guild {guild.name} (ID: {guild.id})")
-    
-async def on_disconnect():
-    """
-    Function called when the bot disconnects from the server.
-    Saves the database and logs a message indicating that the script has stopped.
-    """
-    save_database()
-    logger.info(f'Script Stopped!')
     
 async def download_image(url, images_folder, filename):
     """
@@ -476,7 +489,7 @@ async def on_message(message: DiscordMessage):
             
         thinkingText = "**```Creating Response...```** \n"
         await interactive_response.edit(content = thinkingText)
-        completion = client.chat.completions.create(
+        completions = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "system", "content": rendered}],
             stream=True,
@@ -485,7 +498,7 @@ async def on_message(message: DiscordMessage):
         collected_chunks = []
         collected_messages = []
         logger.info('Getting chunks...')
-        for chunk in completion:
+        for chunk in completions:
             await asyncio.sleep(.4) # Throttle the loop to avoid rate limits
             collected_chunks.append(chunk)
             chunk_message = chunk.choices[0].delta
