@@ -5,10 +5,13 @@ It contains the code for initializing the bot, handling events, and interacting 
 The code includes functions for saving and updating the database, handling message events, and downloading images.
 It also defines a custom view class for displaying confirmation prompts and a view for sending messages to the appropriate channel.
 """
+import io
 import os
 import json
+import re
 import aiohttp
 import discord
+import elevenlabs
 from discord import Interaction, Message as DiscordMessage
 from discord.utils import get as discord_get
 import logging
@@ -27,7 +30,6 @@ from src.constants import (
     
 )
 
-client = OpenAI(api_key=OPENAI_API_KEY)
 from src.utils import (
     logger,
     discord_message_to_message,
@@ -56,7 +58,9 @@ logging.basicConfig(
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Bot()
+client = OpenAI(api_key=OPENAI_API_KEY)
 images_folder = 'images'
+elevenlabs.set_api_key("591720b694f78a02acb4b97aae6c3d83")
 
 try:
     with open('database.json', 'r') as f:
@@ -194,6 +198,13 @@ def sendMessage(message: DiscordMessage, content: str):
     
     else:
         return message.channel.send(content)
+    
+async def check_admin_permissions(ctx):
+    author = ctx.author
+    if not author.guild_permissions.administrator:
+        await ctx.respond("You don't have permission to perform this action.")
+        return False
+    return True
 
 async def messageInNamedChannel(message: DiscordMessage, name: str):
     """
@@ -305,37 +316,46 @@ async def on_message(message: DiscordMessage):
                 
         thinkingText = "**```Processing Message...```**"
         
-        # <TODO> Add functionality for adding guild IDs to database
+        # <TODO> Add functionality for adding guild IDs to database.json below that each have their own 'images' and 'user_threads' in them
         
         if (TextChannel and message.channel.name == 'gloved-gpt'):
             logger.info('Message is not in the gloved-gpt channel or is not in a guild. Skipping...')
-            if message.channel.type == discord.ChannelType.text and message.channel.name == 'gloved-gpt':
-                if 'overflow_counts' not in database:
-                    database['overflow_counts'] = {}
-                if message.author.id not in database['overflow_counts']:
-                    database['overflow_counts'][message.author.id] = 0
+            if TextChannel and message.channel.name == 'gloved-gpt':
+                if message.guild.id not in database:
+                    database[message.guild.id] = {'images': {}, 'user_threads': {}, 'overflow_counts': {}}
+                    
+                guild_data = database[message.guild.id]
+                images = guild_data['images']
+                user_threads = guild_data['user_threads']
+                overflow_counts = guild_data['overflow_counts']
+                if 'overflow_counts' not in guild_data:
+                    guild_data['overflow_counts'] = {}
+                    
+                if message.author.id not in overflow_counts:
+                    overflow_counts[message.author.id] = 0
+                    
                 logger.info('gloved-gpt Channel Message Recieved!')
-                if message.author.id not in database['user_threads']:
-                    database['user_threads'][message.author.id] = []
+                if message.author.id not in user_threads:
+                    user_threads[message.author.id] = []
                     logger.info(f'Added user {message.author.name} to database')
-                threads = database['user_threads'][message.author.id]
-                valid_threads = []
+                    thread_name = f"{message.author.name} - 1"
+                    
+                else:
+                    threads = database['user_threads'][message.author.id]
+                    thread_name = f"{message.author.name} - {len(threads) + 1}"
+                    
+                threads = user_threads[message.author.id]
                 for thread in threads[:]:
                     try:
                         await message.guild.fetch_channel(thread["thread_id"])
-                        valid_threads.append(thread)
                         
                     except discord.NotFound:
-                        # logger.info(f'Removed thread {thread["thread_id"]} from database')
                         logger.info(f'Thread (ID: {thread["thread_id"]}) not found!')
+                        threads.remove(thread)
                         
-                threads = valid_threads
-                database['user_threads'][message.author.id] = threads
-                save_database()
+                user_threads[message.author.id] = threads
                 await asyncio.sleep(1)
-                user_thread_count = len(threads)
-                logger.info(f'User: {message.author.name} Threads: {user_thread_count}')
-                if user_thread_count >= 3:
+                if (user_thread_count := len(threads)) >= 3:
                     view = ConfirmView()
                     confirmMessage = await message.reply("You have reached the limit of 3 threads. Are you sure you want to archive your oldest thread and create a new one?", view=view)
                     await view.wait()
@@ -347,37 +367,36 @@ async def on_message(message: DiscordMessage):
                         await oldest_thread_channel.delete()
                         oldest_message = await message.channel.fetch_message(oldest_message_id)
                         await oldest_message.delete()
-                        logger.info(f'Removed thread {oldest_thread_id} from database')
                         await confirmMessage.delete()
-                        database['overflow_counts'][message.author.id] += 1
+                        overflow_counts[message.author.id] += 1
+                        logger.info(f'Removed thread {oldest_thread_id} from database')
                         
                     else:
                         await confirmMessage.delete()
                         return
                     
                 else:
-                    database['overflow_counts'][message.author.id] = 0
+                    overflow_counts[message.author.id] = 0
                     
-                save_database()
-                database['user_threads'][message.author.id] = threads
                 user_thread_count = len(threads)
-                overflow_count = database['overflow_counts'][message.author.id]
+                overflow_count = overflow_counts[message.author.id]
                 thread_name = f"{message.author.name} - {user_thread_count + 1 + overflow_count}"
                 createdThread = await message.create_thread(name=thread_name)
                 threads.append({'thread_id': createdThread.id, 'message_id': message.id})
+                user_threads[message.author.id] = threads
                 save_database()
                 interactive_response = await createdThread.send(thinkingText)
                 logger.info('Thread Created!')
+                
         elif isinstance(message.channel, discord.DMChannel) or (message.channel.type == discord.ChannelType.public_thread and message.channel.parent.name == 'gloved-gpt'):
             logger.info('Message is DM or User Thread. Processing...')
             interactive_response = await channel.send(thinkingText)
             
         else:
-            # logger.info(f'Message (ID: {message.id}) is not in the gloved-gpt channel or is not in a guild. Skipping...')
             return
-            
+        
         message = await channel.fetch_message(message.id)
-        print('Embedding Message!')
+        logger.info('Embedding Message!')
         vector = gpt3_embedding(message)
         timestamp = time()
         timestring = timestring = timestamp_to_datetime(timestamp)
@@ -387,12 +406,12 @@ async def on_message(message: DiscordMessage):
         filename = 'log_%s_user' % timestamp
         save_json(f'./src/chat_logs/{filename}.json', info)
         history = load_convo()
-        print('Loading Memories!')
+        logger.info('Loading Memories!')
         thinkingText = "**```Loading Memories...```**"
         await interactive_response.edit(content = thinkingText)
         memories = fetch_memories(vector, history, 5)
         current_notes, vector = summarize_memories(memories)
-        print(current_notes)
+        logger.info(current_notes)
         print('-------------------------------------------------------------------------------')
         add_notes(current_notes)
         if len(notes_history) >= 2:
@@ -425,7 +444,6 @@ async def on_message(message: DiscordMessage):
         else:
             channel_messages = [discord_message_to_message(message)]
             
-        logger.info(f'Checking if following message is in a thread: {message.content}')
         if message.thread is None:
             logger.info('Thread Message Recieved!')
             logger.info(message.content)
@@ -450,6 +468,11 @@ async def on_message(message: DiscordMessage):
         rendered = prompt.render()
         print(rendered)
         logger.info('Prompt Rendered!')
+        mentions = re.findall(r'<@(\d+)>', rendered)
+        for mention in mentions:
+            user = await bot.fetch_user(mention)
+            rendered = rendered.replace(f'<@{mention}>', user.name)
+            
         thinkingText = "**```Creating Response...```** \n"
         await interactive_response.edit(content = thinkingText)
         completion = client.chat.completions.create(
@@ -477,11 +500,23 @@ async def on_message(message: DiscordMessage):
                 logger.info(full_reply_content)
                 interactive_response = await channel.send(thinkingText)
                 collected_messages = [] 
-        
-        await interactive_response.edit(content = full_reply_content)
+                
+        thinkingText = "**```Getting Voice...```** \n"
+        await interactive_response.edit(content = thinkingText + full_reply_content)
         thinkingText = "**```Response Finished!```** \n"
-        print('GlovedBot: ' + full_reply_content)
+        logger.info(f'GlovedBot: {full_reply_content}')
+        full_reply_voice = re.sub(r'\*.*?\*', '', full_reply_content)
+        audio = elevenlabs.generate(
+            text=full_reply_voice,
+            voice="Roetpv5aIoWbL37AfGp3",
+            model="eleven_multilingual_v2"
+            
+        )
+        audio_file = io.BytesIO(audio)
+        logger.info('TTS Generated and Saved!')
+        await interactive_response.edit(content=full_reply_content, file=discord.File(audio_file, filename='reply.mp3'))
         responseReply = await message.reply(thinkingText)
+        logger.info('Full Response Sent!')
         await asyncio.sleep(1.5)
         await responseReply.delete()
         
@@ -490,7 +525,27 @@ async def on_message(message: DiscordMessage):
         await channel.send(e)
         
 logger.info('Registered Events!')
+@bot.slash_command(description="Purges messages from the current channel.")
+async def purge(ctx, limit: discord.Option(int, description="The number of messages to purge (default: 100)", default=100)):
+    """
+    Purges messages from the current channel.
 
+    Parameters:
+    - ctx (Context): The context object representing the interaction.
+    - limit (int): The number of messages to purge (default: 100).
+
+    Returns:
+    - None
+
+    Raises:
+    - None
+    """
+    if not await check_admin_permissions(ctx):
+        return
+    await ctx.respond(f'Purging {limit} messages...')
+    logger.info(f'Purging {limit} messages...')
+    await ctx.channel.purge(limit=limit)
+    
 @bot.slash_command(description="Stops the bot.")
 async def shutdown(ctx):
     """
@@ -505,15 +560,13 @@ async def shutdown(ctx):
     Raises:
     - None
     """
-    author = ctx.author
-    if author.guild_permissions.administrator:
-        await ctx.respond(f'{bot.user.display_name} is shutting down.')
-        logger.info(f'{bot.user.display_name} is shutting down.')
-        await bot.close()
-        
-    else:
-        await ctx.respond("You don't have permission to stop me. Hehe.")
-        
+    if not await check_admin_permissions(ctx):
+        return
+    
+    await ctx.respond(f'{bot.user.display_name} is shutting down.')
+    logger.info(f'{bot.user.display_name} is shutting down.')
+    await bot.close()
+    
 @bot.slash_command(description="Generate an image from a prompt.")
 async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from"), edit: discord.Option(str, description="Enter the ID of message with image (Copy/Paste Message ID)") = None, showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response") = False):
     """
@@ -548,6 +601,7 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             return
     if message:
         message_id_str = str(message_id)
+        database = database[message.guild.id]
         if message_id_str in database and 'filteredprompt' in database['images'][message_id_str] and 'prompt' in database['images'][message_id_str]:
             original_filtered_prompt = database['images'][message_id_str]['filteredprompt']
             original_prompt = database['images'][message_id_str]['prompt']
@@ -603,7 +657,6 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
                 
             image = Image.open(imagePath)
             image_rgba = image.convert('RGBA')
-            # Create a new image with RGBA channels, 1024x1024 pixels, and fully transparent
             image = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))
 
             # Save the image
@@ -661,7 +714,6 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
         )
         print('Image Created! Getting URL...')
         image_url = response.data[0].url
-        # Create an embed object for the Discord message
         print('Creating Embed...')
         embed = discord.Embed(
             title=f'Generated an Image',
