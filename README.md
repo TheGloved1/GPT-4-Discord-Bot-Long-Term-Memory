@@ -5,12 +5,12 @@ GlovedBot is a GPT-based Discord bot. It uses the OpenAI API to generate respons
 ## Features
 
 - Send various requests to openai with user messages
-- Handles message events
+- Creates threads for users
 - Generate images
-- Interacts with a database
-- Displays confirmation prompts 
-- Sends messages to the appropriate channel
-- Automatically creates required channels on guild join
+- Interacts with a locally created database
+- Sends messages to the appropriate channels
+- Automatically creates required channels on join
+- Works in DMs
 
 ## Credits
 ### Thanks to reality-comes for creating the base of this personal project
