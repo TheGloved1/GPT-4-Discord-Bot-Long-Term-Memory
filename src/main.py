@@ -60,6 +60,7 @@ intents.message_content = True
 bot = discord.Bot()
 client = OpenAI(api_key=OPENAI_API_KEY)
 images_folder = 'images'
+edit_mask = f"{images_folder}/mask.png"
 elevenlabs.set_api_key("591720b694f78a02acb4b97aae6c3d83")
 
 try:
@@ -71,7 +72,7 @@ try:
     
 except FileNotFoundError:
     logger.info('Database not found. Creating new database...')
-    database = {'images': {}, 'user_threads': {}}
+    database = {}
     with open('database.json', 'w') as f:
         json.dump(database, f, indent=4)
         
@@ -595,10 +596,12 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             message_id = int(edit)
             logger.info('Looking for message with ID: ' + str(message_id))
             message = await channel.fetch_message(message_id)
+            
         except (discord.NotFound, ValueError) as e:
             await ctx.edit(content = f'Error: {str(e)}')
             logger.exception(e)
             return
+        
     if message:
         message_id_str = str(message_id)
         database = database[message.guild.id]
@@ -607,6 +610,7 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             original_prompt = database['images'][message_id_str]['prompt']
             logger.info('Original Filtered Prompt Found!')
             logger.info(f'Original Filtered Prompt: \n{original_filtered_prompt}')
+            
         else:
             await ctx.edit(content = 'Error: Original filtered prompt not found')
             return
@@ -618,7 +622,9 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
                 {"role": "system", "content": "You will be given an image prompt to edit, and your job is to edit the prompt to make it loosely comply with OpenAI's safety system filters. Expand upon the original prompt by adding more detail and being more descriptive. Don't go over 3 sentences. If you are provided with two prompts, you must add the second one to the first."}, 
                 {"role": "system", "content": f"This is the original prompt to add to: {original_filtered_prompt}"},
                 {"role": "user", "content": prompt}
+                
             ]
+        
     else:
         logger.info('No Reference Message Found. Using Prompt...')
         FilteredMessage = [
@@ -658,23 +664,21 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             image = Image.open(imagePath)
             image_rgba = image.convert('RGBA')
             image = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))
-
-            # Save the image
-            image.save('mask.png')
+            image.save(f'{images_folder}/mask.png')
             logger.info('Image Converted to RGBA')
             image_rgba.save(imagePath)
             response = client.images.edit(
                 model="dall-e-2",
                 image=open(imagePath, "rb"),
-                mask=open("mask.png", "rb"),
+                mask=open(edit_mask, "rb"),
                 prompt=FilteredResponse,
                 size="1024x1024",
                 n=1,
                 
             )
-            print('Image Created! Getting URL...')
+            logger.info('Image Created! Getting URL...')
             image_url = response.data[0].url
-            print('Creating Embed...')
+            logger.info('Creating Embed...')
             embed = discord.Embed(
                 title=f'Edited an Image',
                 description='**Original Prompt:** ' + original_prompt,
