@@ -507,12 +507,15 @@ async def on_message(message: DiscordMessage):
         thinkingText = "**```Response Finished!```** \n"
         logger.info(f'GlovedBot: {full_reply_content}')
         full_reply_voice = re.sub(r'\*.*?\*', '', full_reply_content)
-        audio = elevenlabs.generate(
-            text=full_reply_voice,
-            voice="Roetpv5aIoWbL37AfGp3",
-            model="eleven_multilingual_v2"
-            
-        )
+        try:
+            audio = elevenlabs.generate(
+                text=full_reply_voice,
+                voice="Roetpv5aIoWbL37AfGp3",
+                model="eleven_multilingual_v2"
+                
+            )
+        except Exception as e:
+            logger.exception(e)
         audio_file = io.BytesIO(audio)
         logger.info('TTS Generated and Saved!')
         await interactive_response.edit(content=full_reply_content, file=discord.File(audio_file, filename='reply.mp3'))
@@ -523,7 +526,6 @@ async def on_message(message: DiscordMessage):
         
     except Exception as e:
         logger.exception(e)
-        await channel.send(e)
         
 logger.info('Registered Events!')
 @bot.slash_command(description="Purges messages from the current channel.")
