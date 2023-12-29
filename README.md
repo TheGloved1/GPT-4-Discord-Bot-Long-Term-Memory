@@ -18,10 +18,12 @@ https://github.com/reality-comes/GPT-4-Discord-Bot-Long-Term-Memory
 
 ## Usage
 
-Make sure to have Nodemon installed on your system.
+- Make sure to have `Nodemon` installed on your system.
 ```
 git clone https://github.com/TheGloved1/gpt-bot.git
-
+```
+- Rename `.env.example` to `.env`, then enter your own keys and IDs.
+```
 cd gpt-bot && nodemon -e py,txt --ignore logs.txt --exec bot-env/bin/python -m src.main > logs.txt 2>&1
 ```
 
