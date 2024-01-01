@@ -12,8 +12,9 @@ import re
 import aiohttp
 import discord
 import elevenlabs
-from discord import Interaction, Message as DiscordMessage
+from discord import Interaction, Message as DiscordMessage, FFmpegPCMAudio
 from discord.utils import get as discord_get
+from pydub import AudioSegment
 import logging
 import asyncio
 from uuid import uuid4
@@ -29,6 +30,7 @@ from src.constants import (
     MAX_MESSAGE_HISTORY,
     OPENAI_API_KEY,
     OWNER_ID,
+    ELEVENLABS_API_KEY,
     
 )
 
@@ -62,10 +64,14 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Bot()
 client = OpenAI(api_key=OPENAI_API_KEY)
+logger.info(f'OpenAI API Key: "{client.api_key}"')
+elevenlabs.set_api_key(ELEVENLABS_API_KEY)
+logger.info(f'ElevenLabs API Key: "{elevenlabs.get_api_key()}"')
 images_folder = 'images'
 edit_mask = f"{images_folder}/mask.png"
-elevenlabs.set_api_key("591720b694f78a02acb4b97aae6c3d83")
+logger.info(f'Edit Mask Path: "{edit_mask}"')
 disconnect_time = None
+current_messages = {}
 
 try:
     with open('database.json', 'r') as f:
@@ -108,12 +114,11 @@ def save_database():
 @bot.event
 async def on_disconnect():
     """
-    Function called when the bot disconnects from the server.
-    Saves the database and logs a message indicating that the script has stopped.
+    Saves the database, records the disconnect time, and logs the event.
     """
     save_database()
     bot.disconnect_time = asyncio.get_event_loop().time()
-    logger.info(f'Script Stopped!')
+    logger.info(f'BOT DISCONNECTED AT {bot.disconnect_time}')
 
 @bot.event
 async def on_ready():
@@ -176,7 +181,7 @@ async def on_guild_join(guild):
     await category.create_text_channel("gloved-images")
     logger.info(f"Created channels in guild {guild.name} (ID: {guild.id})")
     
-async def download_image(url, images_folder, filename):
+async def download_image(url: str, images_folder: str, filename: str):
     """
     Downloads an image from the given URL and saves it to the specified folder with the given filename.
 
@@ -195,23 +200,7 @@ async def download_image(url, images_folder, filename):
     with open(os.path.join(images_folder, f"{filename}"), 'wb') as f:
         f.write(image_data)
         
-def sendMessage(message: DiscordMessage, content: str):
-    """
-    Sends a message to the appropriate channel based on the type of the message's channel.
-
-    Parameters:
-    - message (DiscordMessage): The message object.
-    - content (str): The content of the message.
-
-    Returns:
-    - The sent message object.
-    """
-    TextChannel = message.channel.type == discord.ChannelType.text
-    if TextChannel:
-        return message.reply(content)
-    
-    else:
-        return message.channel.send(content)
+    logger.info(f'Downloaded image from {url} and saved to {images_folder}/{filename}')
     
 async def check_admin_permissions(ctx):
     author = ctx.author
@@ -252,6 +241,18 @@ async def updateDatabase(key, value):
     database[key] = value
     await save_database()
     logger.info(f'Updated database with {key}: {value}')
+    
+def checkVoice(message: DiscordMessage, prefix: str):
+    """
+    Checks if a message contains the voice prefix.
+
+    Args:
+        message (DiscordMessage): The message to check.
+
+    Returns:
+        bool: True if the message contains the voice prefix, False otherwise.
+    """
+    return message.content.startswith(prefix)
 
 class ConfirmView(discord.ui.View):
     """
@@ -300,10 +301,17 @@ async def on_message(message: DiscordMessage):
     Args:
         message (DiscordMessage): The message object.
     """
+    global current_messages
     if (message.author == bot.user) or message.author.bot or message.author.system: 
         return
     
-    OriginalMessage = message
+    
+    if message.channel.id in current_messages:
+        old_message_id = current_messages[message.channel.id]
+        old_message = await message.channel.fetch_message(old_message_id)
+        if old_message:
+            await old_message.delete()
+        
     channel = message.channel
     TextChannel = message.channel.type == discord.ChannelType.text
     PublicThread = message.channel.type == discord.ChannelType.public_thread
@@ -329,9 +337,6 @@ async def on_message(message: DiscordMessage):
             return
                 
         thinkingText = "**```Processing Message...```**"
-        
-        # <TODO> Add functionality for adding guild IDs to database.json below that each have their own 'images' and 'user_threads' in them
-        
         if (TextChannel and message.channel.name == 'gloved-gpt'):
             logger.info('Message is not in the gloved-gpt channel or is not in a guild. Skipping...')
             if TextChannel and message.channel.name == 'gloved-gpt':
@@ -402,14 +407,18 @@ async def on_message(message: DiscordMessage):
                 interactive_response = await createdThread.send(thinkingText)
                 logger.info('Thread Created!')
                 
-        elif isinstance(message.channel, discord.DMChannel) or (message.channel.type == discord.ChannelType.public_thread and message.channel.parent.name == 'gloved-gpt'):
+        elif isinstance(message.channel, discord.DMChannel) or (bot.user.mentioned_in(message)) or (message.channel.type == discord.ChannelType.public_thread and message.channel.parent.name == 'gloved-gpt'):
             logger.info('Message is DM or User Thread. Processing...')
             interactive_response = await channel.send(thinkingText)
             
         else:
             return
         
+        current_messages[message.channel.id] = interactive_response.id
         message = await channel.fetch_message(message.id)
+        if bot.user.mentioned_in(message):
+            message.content = message.content.removeprefix('<@938447947857821696> ')
+        
         logger.info('Embedding Message!')
         vector = gpt3_embedding(message)
         timestamp = time()
@@ -480,23 +489,26 @@ async def on_message(message: DiscordMessage):
             
         )
         rendered = prompt.render()
-        print(rendered)
-        logger.info('Prompt Rendered!')
         mentions = re.findall(r'<@(\d+)>', rendered)
         for mention in mentions:
             user = await bot.fetch_user(mention)
             rendered = rendered.replace(f'<@{mention}>', user.name)
             
+        rendered.replace(f'\n<|endoftext|>GlovedBot: **```Reading Previous Messages...```**', '')
+        logger.info(rendered)
+        logger.info('Prompt Rendered!')
         thinkingText = "**```Creating Response...```** \n"
         await interactive_response.edit(content = thinkingText)
         completions = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[{"role": "system", "content": rendered}],
+            temperature=1.0,
             stream=True,
             
         )
         collected_chunks = []
         collected_messages = []
+        full_reply_content_combined = ""
         logger.info('Getting chunks...')
         for chunk in completions:
             await asyncio.sleep(.4) # Throttle the loop to avoid rate limits
@@ -510,31 +522,70 @@ async def on_message(message: DiscordMessage):
                 await interactive_response.edit(content = thinkingText + full_reply_content)
                 
             if len(full_reply_content) > 1950:
+                full_reply_content_combined = full_reply_content
                 await interactive_response.edit(content = full_reply_content)
-                logger.info(full_reply_content)
                 interactive_response = await channel.send(thinkingText)
                 collected_messages = [] 
+                logger.info('Message character limit reached. Started new message.')
                 
-        thinkingText = "**```Getting Voice...```** \n"
-        await interactive_response.edit(content = thinkingText + full_reply_content)
+        del current_messages[message.channel.id]
+        voice = [None]
+        user_id = message.author.id
+        guild = message.guild
+        member = await guild.fetch_member(user_id)
+        if guild is not None:
+            member = await guild.fetch_member(user_id)
+            if member.voice is not None:
+                logger.info('Voice Channel Found!')
+                voice[0] = member.voice
+        
+        if voice[0] is not None:
+            user_id = message.author.id
+            voice_channel = voice[0].channel
+            logger.info('Voice Channel Found!')
+            thinkingText = "**```Getting Voice...```** \n"
+            await interactive_response.edit(content = thinkingText + full_reply_content)
+            full_reply_content_combined = ''.join([full_reply_content_combined, full_reply_content])
+            full_reply_voice = re.sub(r'\*.*?\*', '', full_reply_content_combined)
+            logger.info(f'Creating TTS for: {full_reply_content}')
+            try:
+                audio = elevenlabs.generate(
+                    text=full_reply_voice,
+                    voice="Roetpv5aIoWbL37AfGp3",
+                    model="eleven_multilingual_v2"
+                    
+                )
+                with open('voice.mp3', 'wb') as f:
+                    f.write(audio)
+                
+                voice_client = await voice_channel.connect()
+                await asyncio.sleep(1)
+                voice_client.play(FFmpegPCMAudio('voice.mp3', options=f'-filter:a "volume=2.0"'))
+                logger.info('TTS Generated and Saved!')
+                thinkingText = "**```Playing Voice...```** \n"
+                await interactive_response.edit(content = thinkingText + full_reply_content)
+                logger.info('Playing Voice...')
+                while voice_client.is_playing():
+                    await asyncio.sleep(1)
+                    
+                await voice_client.disconnect()
+                logger.info('Voice Played!')
+                await interactive_response.edit(content=full_reply_content)
+                os.remove('voice.mp3')
+                
+            except Exception as e:
+                logger.error(f'Error generating or playing voice: {e}')
+                if voice_client.is_connected():
+                    await voice_client.disconnect()
+                    
+        else:
+            logger.info('No Voice Channel Found!')
+            await interactive_response.edit(content=full_reply_content)
+            
         thinkingText = "**```Response Finished!```** \n"
-        logger.info(f'GlovedBot: {full_reply_content}')
-        full_reply_voice = re.sub(r'\*.*?\*', '', full_reply_content)
-        try:
-            audio = elevenlabs.generate(
-                text=full_reply_voice,
-                voice="Roetpv5aIoWbL37AfGp3",
-                model="eleven_multilingual_v2"
-                
-            )
-        except Exception as e:
-            logger.exception(e)
-        audio_file = io.BytesIO(audio)
-        logger.info('TTS Generated and Saved!')
-        await interactive_response.edit(content=full_reply_content, file=discord.File(audio_file, filename='reply.mp3'))
         responseReply = await message.reply(thinkingText)
         logger.info('Full Response Sent!')
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(.5)
         await responseReply.delete()
         
     except Exception as e:
@@ -542,7 +593,7 @@ async def on_message(message: DiscordMessage):
         
 logger.info('Registered Events!')
 @bot.slash_command(description="Purges messages from the current channel.")
-async def purge(ctx, limit: discord.Option(int, description="The number of messages to purge (default: 100)", default=100)):
+async def purge(ctx, limit: discord.Option(int, description="The number of messages to purge (default: 10)", default=10)):
     """
     Purges messages from the current channel.
 
@@ -556,11 +607,13 @@ async def purge(ctx, limit: discord.Option(int, description="The number of messa
     Raises:
     - None
     """
-    if not await check_admin_permissions(ctx):
+    if not ctx.channel.type == discord.ChannelType.private:
+        await check_admin_permissions(ctx)
         return
     await ctx.respond(f'Purging {limit} messages...')
     logger.info(f'Purging {limit} messages...')
     await ctx.channel.purge(limit=limit)
+    await ctx.edit(f'Purged {limit} messages!')
     
 @bot.slash_command(description="Stops the bot.")
 async def shutdown(ctx):

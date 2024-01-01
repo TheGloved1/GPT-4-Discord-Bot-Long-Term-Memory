@@ -24,11 +24,12 @@ DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 DISCORD_CLIENT_ID = os.environ["DISCORD_CLIENT_ID"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 OWNER_ID = os.environ["OWNER_ID"]
+ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]
 
-ALLOWED_CHANNEL_NAMES: List[str] = []
-channel_names = os.environ["ALLOWED_CHANNEL_NAMES"].split(",")
-for s in channel_names:
-    ALLOWED_CHANNEL_NAMES.append(str(s))
+# ALLOWED_CHANNEL_NAMES: List[str] = []
+# channel_names = os.environ["ALLOWED_CHANNEL_NAMES"].split(",")
+# for s in channel_names:
+#     ALLOWED_CHANNEL_NAMES.append(str(s))
 
 
 # Send Messages, Send Messages in Threads, Manage Messages, Read Message History

@@ -1,6 +1,3 @@
-from src.constants import (
-    ALLOWED_CHANNEL_NAMES,
-)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,10 +32,9 @@ def is_last_message_stale(
         and last_message.author.id != bot_id
     )
 
-def should_block(channel) -> bool:
-
-    if channel.name and channel.name not in ALLOWED_CHANNEL_NAMES:
-        # not allowed in this server
-        logger.info(f"Messages from {channel} not allowed")
-        return True
-    return False
+# def should_block(channel) -> bool:
+#     if channel.name and channel.name not in ALLOWED_CHANNEL_NAMES:
+#         # not allowed in this server
+#         logger.info(f"Messages from {channel} not allowed")
+#         return True
+#     return False

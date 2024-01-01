@@ -9,7 +9,5 @@ src/memories/
 src/notes/
 /images/*
 !/images/mask.png
-
-requirements.txt
 database.json
 logs.txt
