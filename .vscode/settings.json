@@ -1,11 +1,14 @@
 {
     "python.analysis.autoImportCompletions": true,
-    "python.testing.pytestArgs": [
-        "."
-    ],
+    "python.testing.pytestArgs": ["."],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "editor.fontSize": 12,
     "editor.fontVariations": false,
-    "editor.fontFamily": "'MesloLGM Nerd Font'",
+    "editor.fontFamily": "",
+    "discord-chat.token": "NTA0Mzk1OTU1MjczOTkwMTU4.G_vuvp.TkhTtqkSdEYaSgdtkajMC39q6RVgGTOaLeC41A",
+    "codeium.enableSearch": true,
+    "vscord.app.name": "Visual Studio Code",
+    "python.analysis.typeCheckingMode": "off",
+    "python.REPL.enableREPLSmartSend": false
 }

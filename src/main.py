@@ -31,13 +31,13 @@ from src.constants import (
     OPENAI_API_KEY,
     OWNER_ID,
     ELEVENLABS_API_KEY,
-    
+
 )
 
 from src.utils import (
     logger,
     discord_message_to_message,
-    
+
 )
 
 from src import completion
@@ -45,19 +45,19 @@ from src import constants
 from src.constants import MY_BOT_EXAMPLE_CONVOS, MY_BOT_NAME
 from src.memory import (
     gpt3_embedding,
-    save_json, 
+    save_json,
     load_convo,
     add_notes,
     notes_history,
     fetch_memories,
     summarize_memories,
     timestamp_to_datetime
-    
+
 )
 
 logging.basicConfig(
     format="[%(asctime)s] [%(filename)s:%(lineno)d] %(message)s", level=logging.INFO
-    
+
 )
 
 intents = discord.Intents.default()
@@ -72,20 +72,22 @@ edit_mask = f"{images_folder}/mask.png"
 logger.info(f'Edit Mask Path: "{edit_mask}"')
 disconnect_time = None
 current_messages = {}
+streamMode = False
+logger.info(f'Stream Mode: "{streamMode}"')
 
 try:
     with open('database.json', 'r') as f:
         database = json.load(f)
-        
+
     logger.info(f'Database loaded!')
     # logger.info(f'Database: {database}') # FOR DEBUGGING
-    
+
 except FileNotFoundError:
     logger.info('Database not found. Creating new database...')
     database = {}
     with open('database.json', 'w') as f:
         json.dump(database, f, indent=4)
-        
+
     logger.info('Database created!')
 
 async def save_database_loop():
@@ -95,7 +97,7 @@ async def save_database_loop():
     while True:
         with open('database.json', 'w') as f:
             json.dump(database, f, indent=4)
-            
+
         await asyncio.sleep(120)
 
 def save_database():
@@ -108,7 +110,7 @@ def save_database():
     """
     with open('database.json', 'w') as f:
         json.dump(database, f, indent=4)
-        
+
     logger.info('Database saved!')
 
 @bot.event
@@ -138,12 +140,12 @@ async def on_ready():
         for m in c.messages:
             if m.user == BOT_NAME:
                 messages.append(Message(user=bot.user.name, text=m.text))
-                
+
             else:
                 messages.append(m)
-                
+
         completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
-        
+
     bot.loop.create_task(save_database_loop())
     logger.info('Database Autosave Started!')
     for guild in bot.guilds:
@@ -158,21 +160,21 @@ async def on_ready():
                     logger.info(f'Found {owner.name} (ID: {OWNER_ID}) in guild!')
                     await owner.add_roles(role)
                     logger.info(f'Added role ({bot.user.name} Admin) to {owner.name}!')
-                    
+
                 else:
                     logger.info(f'Owner not found in guild!')
-                    
+
             else:
                 logger.info(f'Found {bot.user.name} Admin role!')
-                
+
         except Exception as e:
             logger.info(f'Failed to add or get role for Owner!')
     logger.info(f'{bot.user.name} is ready!')
-            
+
 @bot.event
 async def on_connect():
     logger.info(f"{bot.user.name} connected to Discord!")
-    
+
 @bot.event
 async def on_guild_join(guild):
     logger.info(f"Joined guild {guild.name} (ID: {guild.id})")
@@ -180,7 +182,7 @@ async def on_guild_join(guild):
     await category.create_text_channel("gloved-gpt")
     await category.create_text_channel("gloved-images")
     logger.info(f"Created channels in guild {guild.name} (ID: {guild.id})")
-    
+
 async def download_image(url: str, images_folder: str, filename: str):
     """
     Downloads an image from the given URL and saves it to the specified folder with the given filename.
@@ -196,12 +198,12 @@ async def download_image(url: str, images_folder: str, filename: str):
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             image_data = await resp.read()
-            
+
     with open(os.path.join(images_folder, f"{filename}"), 'wb') as f:
         f.write(image_data)
-        
+
     logger.info(f'Downloaded image from {url} and saved to {images_folder}/{filename}')
-    
+
 async def check_admin_permissions(ctx):
     author = ctx.author
     if not author.guild_permissions.administrator:
@@ -223,7 +225,7 @@ async def messageInNamedChannel(message: DiscordMessage, name: str):
     if message.channel.name:
         if message.channel.name == name:
             return True
-        
+
     else:
         return False
 
@@ -241,7 +243,7 @@ async def updateDatabase(key, value):
     database[key] = value
     await save_database()
     logger.info(f'Updated database with {key}: {value}')
-    
+
 def checkVoice(message: DiscordMessage, prefix: str):
     """
     Checks if a message contains the voice prefix.
@@ -292,26 +294,26 @@ class ConfirmView(discord.ui.View):
         """
         self.value = False
         self.stop()
-        
-@bot.event            
+
+@bot.event
 async def on_message(message: DiscordMessage):
     """
     Event handler for when a message is received.
-    
+
     Args:
         message (DiscordMessage): The message object.
     """
     global current_messages
-    if (message.author == bot.user) or message.author.bot or message.author.system: 
+    if (message.author == bot.user) or message.author.bot or message.author.system:
         return
-    
-    
+
+
     if message.channel.id in current_messages:
         old_message_id = current_messages[message.channel.id]
         old_message = await message.channel.fetch_message(old_message_id)
         if old_message:
             await old_message.delete()
-        
+
     channel = message.channel
     TextChannel = message.channel.type == discord.ChannelType.text
     PublicThread = message.channel.type == discord.ChannelType.public_thread
@@ -320,58 +322,58 @@ async def on_message(message: DiscordMessage):
     MentionContent = message.content.removeprefix('<@938447947857821696> ')
     if message.content.startswith('@everyone'):
         return
-    
+
     if message.content == "?resetchannel":
         if not TextChannel:
             return
-        
+
         channel_position = channel.position
         new_channel = await channel.clone(reason="Channel reset")
         await new_channel.edit(position=channel_position)
         await channel.delete(reason="Channel reset by command")
         await new_channel.send("Channel has been reset. Not a trace left, like my last user's dignity.")
         return
-    
+
     try:
         if message.content.startswith('?'):
             return
-                
+
         thinkingText = "**```Processing Message...```**"
         if (TextChannel and message.channel.name == 'gloved-gpt'):
             logger.info('Message is not in the gloved-gpt channel or is not in a guild. Skipping...')
             if TextChannel and message.channel.name == 'gloved-gpt':
                 if message.guild.id not in database:
                     database[message.guild.id] = {'images': {}, 'user_threads': {}, 'overflow_counts': {}}
-                    
+
                 guild_data = database[message.guild.id]
                 images = guild_data['images']
                 user_threads = guild_data['user_threads']
                 overflow_counts = guild_data['overflow_counts']
                 if 'overflow_counts' not in guild_data:
                     guild_data['overflow_counts'] = {}
-                    
+
                 if message.author.id not in overflow_counts:
                     overflow_counts[message.author.id] = 0
-                    
+
                 logger.info('gloved-gpt Channel Message Recieved!')
                 if message.author.id not in user_threads:
                     user_threads[message.author.id] = []
                     logger.info(f'Added user {message.author.name} to database')
                     thread_name = f"{message.author.name} - 1"
-                    
+
                 else:
                     threads = database['user_threads'][message.author.id]
                     thread_name = f"{message.author.name} - {len(threads) + 1}"
-                    
+
                 threads = user_threads[message.author.id]
                 for thread in threads[:]:
                     try:
                         await message.guild.fetch_channel(thread["thread_id"])
-                        
+
                     except discord.NotFound:
                         logger.info(f'Thread (ID: {thread["thread_id"]}) not found!')
                         threads.remove(thread)
-                        
+
                 user_threads[message.author.id] = threads
                 await asyncio.sleep(1)
                 if (user_thread_count := len(threads)) >= 3:
@@ -389,14 +391,14 @@ async def on_message(message: DiscordMessage):
                         await confirmMessage.delete()
                         overflow_counts[message.author.id] += 1
                         logger.info(f'Removed thread {oldest_thread_id} from database')
-                        
+
                     else:
                         await confirmMessage.delete()
                         return
-                    
+
                 else:
                     overflow_counts[message.author.id] = 0
-                    
+
                 user_thread_count = len(threads)
                 overflow_count = overflow_counts[message.author.id]
                 thread_name = f"{message.author.name} - {user_thread_count + 1 + overflow_count}"
@@ -406,19 +408,19 @@ async def on_message(message: DiscordMessage):
                 save_database()
                 interactive_response = await createdThread.send(thinkingText)
                 logger.info('Thread Created!')
-                
+
         elif isinstance(message.channel, discord.DMChannel) or (bot.user.mentioned_in(message)) or (message.channel.type == discord.ChannelType.public_thread and message.channel.parent.name == 'gloved-gpt'):
             logger.info('Message is DM or User Thread. Processing...')
             interactive_response = await channel.send(thinkingText)
-            
+
         else:
             return
-        
+
         current_messages[message.channel.id] = interactive_response.id
         message = await channel.fetch_message(message.id)
         if bot.user.mentioned_in(message):
             message.content = message.content.removeprefix('<@938447947857821696> ')
-        
+
         logger.info('Embedding Message!')
         vector = gpt3_embedding(message)
         timestamp = time()
@@ -439,21 +441,21 @@ async def on_message(message: DiscordMessage):
         add_notes(current_notes)
         if len(notes_history) >= 2:
             print(notes_history[-2])
-            
+
         else:
             print("The list does not have enough elements to access the second-to-last element.")
-            
+
         message_notes = Message(user='memories', text=current_notes)
         context_notes = None
         if len(notes_history) >= 2:
             context_notes = Message(user='context', text=notes_history[-2])
-            
+
         else:
             print("The list does not have enough elements create context")
-            
+
         logger.info(
             f"Message to process - {message.author}: {message.content[:50]} - {channel.id} {channel.jump_url}"
-            
+
         )
         thinkingText = "**```Reading Previous Messages...```**"
         await interactive_response.edit(content = thinkingText)
@@ -462,83 +464,92 @@ async def on_message(message: DiscordMessage):
             channel_messages = [
                 discord_message_to_message(msg)
                 async for msg in message.channel.history(limit=MAX_MESSAGE_HISTORY)
-                
+
             ]
         else:
             channel_messages = [discord_message_to_message(message)]
-            
+
         if message.thread is None:
             logger.info('Thread Message Recieved!')
             logger.info(message.content)
-            
+
         channel_messages = [x for x in channel_messages if x is not None]
         channel_messages.reverse()
         channel_messages.insert(0, message_notes)
         if context_notes:
             channel_messages.insert(0, context_notes)
-            
+
         timestamp = time()
         timestring = timestring = timestamp_to_datetime(timestamp)
         prompt = Prompt(
             header=Message(
                 "System", f"Instructions for {MY_BOT_NAME}: {BOT_INSTRUCTIONS}"
-                
+
             ),
             examples=MY_BOT_EXAMPLE_CONVOS,
             convo=Conversation(channel_messages + [Message(f"{timestring} {MY_BOT_NAME}")]),
-            
+
         )
         rendered = prompt.render()
         mentions = re.findall(r'<@(\d+)>', rendered)
         for mention in mentions:
             user = await bot.fetch_user(mention)
             rendered = rendered.replace(f'<@{mention}>', user.name)
-            
+
         rendered.replace(f'\n<|endoftext|>GlovedBot: **```Reading Previous Messages...```**', '')
         logger.info(rendered)
         logger.info('Prompt Rendered!')
         thinkingText = "**```Creating Response...```** \n"
         await interactive_response.edit(content = thinkingText)
         completions = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=[{"role": "system", "content": rendered}],
             temperature=1.0,
-            stream=True,
-            
+            stream=streamMode,
+
         )
-        collected_chunks = []
-        collected_messages = []
-        full_reply_content_combined = ""
-        logger.info('Getting chunks...')
-        for chunk in completions:
-            await asyncio.sleep(.4) # Throttle the loop to avoid rate limits
-            collected_chunks.append(chunk)
-            chunk_message = chunk.choices[0].delta
-            if chunk_message.content is not None:  # Add this check
-                collected_messages.append(chunk_message)
-                
-            full_reply_content = ''.join([m.content for m in collected_messages])
-            if full_reply_content and not full_reply_content.isspace():
-                await interactive_response.edit(content = thinkingText + full_reply_content)
-                
+        if not streamMode:
+            logger.info('Stream Mode Off')
+            full_reply_content = completions.choices[0].message.content
+            full_reply_content_combined = ""
             if len(full_reply_content) > 1950:
-                full_reply_content_combined = full_reply_content
                 await interactive_response.edit(content = full_reply_content)
                 interactive_response = await channel.send(thinkingText)
-                collected_messages = [] 
                 logger.info('Message character limit reached. Started new message.')
-                
+
+        else:
+            logger.info('Stream Mode On')
+            collected_chunks = []
+            collected_messages = []
+            full_reply_content_combined = ""
+            logger.info('Getting chunks...')
+            for chunk in completions:
+                await asyncio.sleep(.4)
+                collected_chunks.append(chunk)
+                chunk_message = chunk.choices[0].delta
+                if chunk_message.content is not None:
+                    collected_messages.append(chunk_message)
+                full_reply_content = ''.join([m.content for m in collected_messages])
+                if full_reply_content and not full_reply_content.isspace():
+                    await interactive_response.edit(content = thinkingText + full_reply_content)
+
+                if len(full_reply_content) > 1950:
+                    full_reply_content_combined = full_reply_content
+                    await interactive_response.edit(content = full_reply_content)
+                    interactive_response = await channel.send(thinkingText)
+                    collected_messages = []
+                    logger.info('Message character limit reached. Started new message.')
+
         del current_messages[message.channel.id]
         voice = [None]
         user_id = message.author.id
         guild = message.guild
-        member = await guild.fetch_member(user_id)
         if guild is not None:
             member = await guild.fetch_member(user_id)
             if member.voice is not None:
-                logger.info('Voice Channel Found!')
+                logger.info('User is in a voice channel!')
                 voice[0] = member.voice
-        
+
         if voice[0] is not None:
             user_id = message.author.id
             voice_channel = voice[0].channel
@@ -547,17 +558,16 @@ async def on_message(message: DiscordMessage):
             await interactive_response.edit(content = thinkingText + full_reply_content)
             full_reply_content_combined = ''.join([full_reply_content_combined, full_reply_content])
             full_reply_voice = re.sub(r'\*.*?\*', '', full_reply_content_combined)
-            logger.info(f'Creating TTS for: {full_reply_content}')
+            logger.info(f'Creating TTS for: {full_reply_voice}')
             try:
                 audio = elevenlabs.generate(
                     text=full_reply_voice,
                     voice="Roetpv5aIoWbL37AfGp3",
                     model="eleven_multilingual_v2"
-                    
                 )
                 with open('voice.mp3', 'wb') as f:
                     f.write(audio)
-                
+
                 voice_client = await voice_channel.connect()
                 await asyncio.sleep(1)
                 voice_client.play(FFmpegPCMAudio('voice.mp3', options=f'-filter:a "volume=2.0"'))
@@ -567,30 +577,31 @@ async def on_message(message: DiscordMessage):
                 logger.info('Playing Voice...')
                 while voice_client.is_playing():
                     await asyncio.sleep(1)
-                    
+
                 await voice_client.disconnect()
                 logger.info('Voice Played!')
                 await interactive_response.edit(content=full_reply_content)
                 os.remove('voice.mp3')
-                
+
             except Exception as e:
                 logger.error(f'Error generating or playing voice: {e}')
                 if voice_client.is_connected():
                     await voice_client.disconnect()
-                    
+
         else:
             logger.info('No Voice Channel Found!')
             await interactive_response.edit(content=full_reply_content)
-            
+
         thinkingText = "**```Response Finished!```** \n"
         responseReply = await message.reply(thinkingText)
         logger.info('Full Response Sent!')
         await asyncio.sleep(.5)
         await responseReply.delete()
-        
+
     except Exception as e:
         logger.exception(e)
-        
+        await message.reply(f'Error: {str(e)}', delete_after=10)
+
 logger.info('Registered Events!')
 @bot.slash_command(description="Purges messages from the current channel.")
 async def purge(ctx, limit: discord.Option(int, description="The number of messages to purge (default: 10)", default=10)):
@@ -614,7 +625,7 @@ async def purge(ctx, limit: discord.Option(int, description="The number of messa
     logger.info(f'Purging {limit} messages...')
     await ctx.channel.purge(limit=limit)
     await ctx.edit(f'Purged {limit} messages!')
-    
+
 @bot.slash_command(description="Stops the bot.")
 async def shutdown(ctx):
     """
@@ -631,11 +642,11 @@ async def shutdown(ctx):
     """
     if not await check_admin_permissions(ctx):
         return
-    
+
     await ctx.respond(f'{bot.user.display_name} is shutting down.')
     logger.info(f'{bot.user.display_name} is shutting down.')
     await bot.close()
-    
+
 @bot.slash_command(description="Generate an image from a prompt.")
 async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from"), edit: discord.Option(str, description="Enter the ID of message with image (Copy/Paste Message ID)") = None, showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response") = False):
     """
@@ -664,12 +675,12 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             message_id = int(edit)
             logger.info('Looking for message with ID: ' + str(message_id))
             message = await channel.fetch_message(message_id)
-            
+
         except (discord.NotFound, ValueError) as e:
             await ctx.edit(content = f'Error: {str(e)}')
             logger.exception(e)
             return
-        
+
     if message:
         message_id_str = str(message_id)
         database = database[message.guild.id]
@@ -678,37 +689,37 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             original_prompt = database['images'][message_id_str]['prompt']
             logger.info('Original Filtered Prompt Found!')
             logger.info(f'Original Filtered Prompt: \n{original_filtered_prompt}')
-            
+
         else:
             await ctx.edit(content = 'Error: Original filtered prompt not found')
             return
-            
+
     if message:
         logger.info('Message Found!')
         logger.info('Message ID: ' + str(message_id))
         FilteredMessage = [
-                {"role": "system", "content": "You will be given an image prompt to edit, and your job is to edit the prompt to make it loosely comply with OpenAI's safety system filters. Expand upon the original prompt by adding more detail and being more descriptive. Don't go over 3 sentences. If you are provided with two prompts, you must add the second one to the first."}, 
+                {"role": "system", "content": "You will be given an image prompt to edit, and your job is to edit the prompt to make it loosely comply with OpenAI's safety system filters. Expand upon the original prompt by adding more detail and being more descriptive. Don't go over 3 sentences. If you are provided with two prompts, you must add the second one to the first."},
                 {"role": "system", "content": f"This is the original prompt to add to: {original_filtered_prompt}"},
                 {"role": "user", "content": prompt}
-                
+
             ]
-        
+
     else:
         logger.info('No Reference Message Found. Using Prompt...')
         FilteredMessage = [
-                {"role": "system", "content": "You will be given an image generation prompt, and your job is to edit the prompt to make it loosely comply with OpenAI's safety system filters. Expand upon the original prompt by adding more detail and being more descriptive. Don't go over 3 sentences."}, 
+                {"role": "system", "content": "You will be given an image generation prompt, and your job is to edit the prompt to make it loosely comply with OpenAI's safety system filters. Expand upon the original prompt by adding more detail and being more descriptive. Don't go over 3 sentences."},
                 {"role": "user", "content": prompt}
-                
+
             ]
-        
+
     logger.info('Received Image Command. Processing...')
     thinkingText = '**```Filtering Prompt...```**'
     ImageResponse = await ctx.edit(content = thinkingText)
     FilterArgs = client.chat.completions.create(
-        model="gpt-3.5-turbo", 
-        messages=FilteredMessage, 
+        model="gpt-3.5-turbo",
+        messages=FilteredMessage,
         stream=False
-        
+
     )
     thinkingText = '**```Generating Image...```**'
     await ctx.edit(content = thinkingText)
@@ -726,10 +737,10 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
                 logger.info('Image Not Found. Try generating a new one.')
                 await ctx.edit('Error: Image too old! Try generating a new one.', delete_after=10)
                 return
-                
+
             else:
                 logger.info('Image Found at ' + imagePath)
-                
+
             image = Image.open(imagePath)
             image_rgba = image.convert('RGBA')
             image = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))
@@ -743,7 +754,7 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
                 prompt=FilteredResponse,
                 size="1024x1024",
                 n=1,
-                
+
             )
             logger.info('Image Created! Getting URL...')
             image_url = response.data[0].url
@@ -752,12 +763,12 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
                 title=f'Edited an Image',
                 description='**Original Prompt:** ' + original_prompt,
                 color=discord.Colour.blurple(),
-                
+
             )
             embed.add_field(name='Edit:', value=prompt, inline=True)
             if showfilteredprompt:
                 embed.add_field(name='Filtered Prompt', value=FilteredResponse, inline=False)
-                
+
             embed.set_author(name="GlovedBot", icon_url=bot.user.display_avatar.url)
             embed.set_thumbnail(url=bot.user.display_avatar.url)
             embed.set_image(url=image_url)
@@ -768,22 +779,22 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             await download_image(image_url, images_folder, f'{ImageResponse.id}.png')
             database['images'][ImageResponse.id] = {
                 'prompt': prompt,
-                'filteredprompt': FilteredResponse, 
+                'filteredprompt': FilteredResponse,
                 'image': image_url,
-                
+
             }
             logger.info('Image Saved!')
             save_database()
-            
-    else: 
+
+    else:
         response = client.images.generate(
             model="dall-e-2",
             prompt=FilteredResponse,
             size="1024x1024",
-            #quality="standard", # DALL-E 3 
+            #quality="standard", # DALL-E 3
             #style="vivid", # DALL-E 3
             n=1,
-            
+
         )
         print('Image Created! Getting URL...')
         image_url = response.data[0].url
@@ -792,11 +803,11 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
             title=f'Generated an Image',
             description='**Prompt:** ' + prompt,
             color=discord.Colour.blurple(),
-            
+
         )
         if showfilteredprompt:
             embed.add_field(name='Filtered Prompt', value=FilteredResponse, inline=False)
-            
+
         embed.set_author(name="GlovedBot", icon_url=bot.user.display_avatar.url)
         embed.set_thumbnail(url=bot.user.display_avatar.url)
         embed.set_image(url=image_url)
@@ -807,17 +818,19 @@ async def image(ctx, prompt: discord.Option(str, description="The prompt to gene
         await download_image(image_url, images_folder, f'{ImageResponse.id}.png')
         database['images'][ImageResponse.id] = {
             'prompt': prompt,
-            'filteredprompt': FilteredResponse, 
+            'filteredprompt': FilteredResponse,
             'image': image_url
-            
+
         }
         logger.info('Image Saved!')
         save_database()
-        
+
 logger.info('Registered Commands!')
 try:
     bot.run(DISCORD_BOT_TOKEN)
-    
+
 finally:
     asyncio.run(on_disconnect())
-    
+
+
+
