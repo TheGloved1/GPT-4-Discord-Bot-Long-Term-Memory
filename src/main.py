@@ -12,9 +12,8 @@ import re
 import aiohttp
 import discord
 import elevenlabs
-from discord import Interaction, Message as DiscordMessage, FFmpegPCMAudio
+from discord import Interaction, Message as DiscordMessage, FFmpegPCMAudio, ActivityType, Activity
 from discord.utils import get as discord_get
-from pydub import AudioSegment
 import logging
 import asyncio
 from uuid import uuid4
@@ -74,6 +73,8 @@ disconnect_time = None
 current_messages = {}
 streamMode = False
 logger.info(f'Stream Mode: "{streamMode}"')
+botActivityName = "Waiting for messages..."
+botActivity = ActivityType.playing
 
 try:
     with open('database.json', 'r') as f:
@@ -133,6 +134,7 @@ async def on_ready():
     if hasattr(bot, 'disconnect_time') and asyncio.get_event_loop().time() - bot.disconnect_time > 60 * 2:  # 2 minutes
         print("Bot was disconnected for too long, stopping...")
         await bot.close()
+
     completion.MY_BOT_NAME = bot.user.name
     completion.MY_BOT_EXAMPLE_CONVOS = []
     for c in EXAMPLE_CONVOS:
@@ -170,6 +172,8 @@ async def on_ready():
         except Exception as e:
             logger.info(f'Failed to add or get role for Owner!')
     logger.info(f'{bot.user.name} is ready!')
+    await bot.change_presence(activity=Activity(type=botActivity, name=botActivityName))
+    logger.info(f'Presence set to "{botActivity.name} {botActivityName}"!')
 
 @bot.event
 async def on_connect():
@@ -417,6 +421,7 @@ async def on_message(message: DiscordMessage):
             return
 
         current_messages[message.channel.id] = interactive_response.id
+        await bot.change_presence(activity=Activity(type=ActivityType.playing, name=f"Generating messages..."))
         message = await channel.fetch_message(message.id)
         if bot.user.mentioned_in(message):
             message.content = message.content.removeprefix('<@938447947857821696> ')
@@ -541,6 +546,8 @@ async def on_message(message: DiscordMessage):
                     logger.info('Message character limit reached. Started new message.')
 
         del current_messages[message.channel.id]
+        if len(current_messages) == 0:
+            await bot.change_presence(activity=Activity(type=botActivity, name=botActivityName))
         voice = [None]
         user_id = message.author.id
         guild = message.guild
@@ -573,7 +580,7 @@ async def on_message(message: DiscordMessage):
                 voice_client.play(FFmpegPCMAudio('voice.mp3', options=f'-filter:a "volume=2.0"'))
                 logger.info('TTS Generated and Saved!')
                 thinkingText = "**```Playing Voice...```** \n"
-                await interactive_response.edit(content = thinkingText + full_reply_content)
+                await interactive_response.edit(content = full_reply_content)
                 logger.info('Playing Voice...')
                 while voice_client.is_playing():
                     await asyncio.sleep(1)
@@ -831,6 +838,3 @@ try:
 
 finally:
     asyncio.run(on_disconnect())
-
-
-
