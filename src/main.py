@@ -132,6 +132,10 @@ async def on_disconnect():
     save_database()
     disconnect_time = asyncio.get_event_loop().time()
     logger.info(f"BOT DISCONNECTED AT {disconnect_time}")
+    for guild in bot.guilds:
+        for command in await bot.fetch_guild_application_commands(guild.id):
+            logger.info(f"Deleting command {command.name} (ID: {command.id}) from guild {guild.name} (ID: {guild.id})")
+            await bot.delete_guild_application_command(guild.id, command.id)
 
 
 @bot.event
@@ -346,49 +350,41 @@ async def on_message(message: DiscordMessage):
     try:
         if message.content.startswith("?"):
             return
-
         thinkingText = "**```Processing Message...```**"
         if TextChannel and message.channel.name == "gloved-gpt":
             logger.info(
                 "Message is not in the gloved-gpt channel or is not in a guild. Skipping..."
             )
             if TextChannel and message.channel.name == "gloved-gpt":
-                if message.guild.id not in database:
+                guild_data = database[message.guild.id]
+                images = guild_data["images"]
+                user_threads = guild_data["user_threads"]
+                overflow_counts = guild_data["overflow_counts"]
+                if guild_data not in database:
                     database[message.guild.id] = {
                         "images": {},
                         "user_threads": {},
                         "overflow_counts": {},
                     }
-
-                guild_data = database[message.guild.id]
-                images = guild_data["images"]
-                user_threads = guild_data["user_threads"]
-                overflow_counts = guild_data["overflow_counts"]
                 if "overflow_counts" not in guild_data:
                     guild_data["overflow_counts"] = {}
-
                 if message.author.id not in overflow_counts:
                     overflow_counts[message.author.id] = 0
-
                 logger.info("gloved-gpt Channel Message Recieved!")
                 if message.author.id not in user_threads:
                     user_threads[message.author.id] = []
                     logger.info(f"Added user {message.author.name} to database")
                     thread_name = f"{message.author.name} - 1"
-
                 else:
                     threads = database["user_threads"][message.author.id]
                     thread_name = f"{message.author.name} - {len(threads) + 1}"
-
                 threads = user_threads[message.author.id]
                 for thread in threads[:]:
                     try:
                         await message.guild.fetch_channel(thread["thread_id"])
-
                     except discord.NotFound:
                         logger.info(f'Thread (ID: {thread["thread_id"]}) not found!')
                         threads.remove(thread)
-
                 user_threads[message.author.id] = threads
                 await asyncio.sleep(1)
                 if (user_thread_count := len(threads)) >= 3:
@@ -413,14 +409,11 @@ async def on_message(message: DiscordMessage):
                         await confirmMessage.delete()
                         overflow_counts[message.author.id] += 1
                         logger.info(f"Removed thread {oldest_thread_id} from database")
-
                     else:
                         await confirmMessage.delete()
                         return
-
                 else:
                     overflow_counts[message.author.id] = 0
-
                 user_thread_count = len(threads)
                 overflow_count = overflow_counts[message.author.id]
                 thread_name = (
@@ -434,7 +427,6 @@ async def on_message(message: DiscordMessage):
                 save_database()
                 interactive_response = await createdThread.send(thinkingText)
                 logger.info("Thread Created!")
-
         elif (
             isinstance(message.channel, discord.DMChannel)
             or (bot.user.mentioned_in(message))
@@ -445,10 +437,8 @@ async def on_message(message: DiscordMessage):
         ):
             logger.info("Message is DM or User Thread. Processing...")
             interactive_response = await channel.send(thinkingText)
-
         else:
             return
-
         current_messages[message.channel.id] = interactive_response.id
         await bot.change_presence(
             activity=Activity(type=ActivityType.playing, name=f"Generating messages...")
@@ -456,7 +446,6 @@ async def on_message(message: DiscordMessage):
         message = await channel.fetch_message(message.id)
         if bot.user.mentioned_in(message):
             message.content = message.content.removeprefix("<@938447947857821696> ")
-
         logger.info("Embedding Message!")
         vector = gpt3_embedding(message)
         timestamp = time()
@@ -486,7 +475,6 @@ async def on_message(message: DiscordMessage):
         add_notes(current_notes)
         if len(notes_history) >= 2:
             print(notes_history[-2])
-
         else:
             print(
                 "The list does not have enough elements to access the second-to-last element."
@@ -552,7 +540,7 @@ async def on_message(message: DiscordMessage):
             full_reply_content = completions.choices[0].message.content
             full_reply_content_combined = ""
             reply_content = [
-                full_reply_content[i : i + 2000]
+                full_reply_content[i: i + 2000]
                 for i in range(0, len(full_reply_content), 2000)
             ]
             await interactive_response.edit(content=reply_content[0])
@@ -609,7 +597,7 @@ async def on_message(message: DiscordMessage):
             full_reply_voice = re.sub(r"\*.*?\*", "", full_reply_content_combined)
             logger.info(f"Creating TTS for: {full_reply_voice}")
             try:
-                audio = await elevenlabs.generate(
+                audio = elevenlabs.generate(
                     text=full_reply_voice,
                     voice="Roetpv5aIoWbL37AfGp3",
                     model="eleven_multilingual_v2",
@@ -629,9 +617,9 @@ async def on_message(message: DiscordMessage):
                     await asyncio.sleep(1)
                 await voice_client.disconnect()
                 logger.info("Voice Played!")
+                os.remove("voice.mp3")
             except Exception as e:
                 logger.error(f"Error generating or playing voice: {e}")
-            os.remove("voice.mp3")
         else:
             logger.info("No Voice Channel Found!")
         if len(current_messages) == 0:
@@ -651,14 +639,12 @@ async def on_message(message: DiscordMessage):
 logger.info("Registered Events!")
 
 
-@bot.slash_command(name="ping", description="Sends the bot's latency.")
+@bot.command(description="Sends the bot's latency.")
 async def ping(ctx):
     await ctx.respond(f"Pong! Latency is {bot.latency}")
 
 
-@bot.slash_command(
-    name="purge", description="Purges messages from the current channel."
-)
+@bot.slash_command(description="Purges messages from the current channel.")
 async def purge(
     ctx,
     limit: discord.Option(
@@ -684,7 +670,7 @@ async def purge(
     await ctx.edit(f"Purged {limit} messages!")
 
 
-@bot.slash_command(name="shutdown", description="Stops the bot.")
+@bot.slash_command(description="Stops the bot.")
 async def shutdown(ctx):
     """
     Stops the bot if the user has administrator permissions in the guild.
@@ -702,17 +688,8 @@ async def shutdown(ctx):
     await bot.close()
 
 
-@bot.slash_command(name="image", description="Generate an image from a prompt.")
-async def image(
-    ctx,
-    prompt: discord.Option(str, description="The prompt to generate an image from"),
-    edit: discord.Option(
-        str, description="Enter the ID of message with image (Copy/Paste Message ID)"
-    ) = None,
-    showfilteredprompt: discord.Option(
-        bool, description="Shows the hidden filtered prompt generated in response"
-    ) = False,
-):
+@bot.slash_command(description="Generate an image from a prompt.")
+async def image(ctx, prompt: discord.Option(str, description="The prompt to generate an image from"), edit: discord.Option(str, description="Enter the ID of message with image (Copy/Paste Message ID)") = None, showfilteredprompt: discord.Option(bool, description="Shows the hidden filtered prompt generated in response") = False):
     """
     Generate an image from a prompt.
     Parameters:

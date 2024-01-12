@@ -3,7 +3,6 @@ env
 __pycache__/
 */.DS_Store
 .DS_Store
-
 src/chat_logs/
 src/memories/
 src/notes/
@@ -11,3 +10,4 @@ src/notes/
 !/images/mask.png
 database.json
 logs.txt
+bot-env/
