@@ -1,15 +1,18 @@
+from http import client
+from time import time, sleep
+from datetime import datetime
+from uuid import uuid4
+import re
+from numpy.linalg import norm
+import numpy as np
+import json
 import os
 from openai import OpenAI
+from mistralai.client import MistralClient
 
-client = OpenAI()
-import json
-import numpy as np
-from numpy.linalg import norm
-import re
-from time import time,sleep
-from uuid import uuid4
-from datetime import datetime
-
+# client = OpenAI()
+# client.embeddings = client.embeddings.create
+client = MistralClient(api_key=os.environ['MISTRAL_API_KEY'])
 
 notes_history = []
 
@@ -38,21 +41,23 @@ def timestamp_to_datetime(unix_time):
     return datetime.fromtimestamp(unix_time).strftime("%A, %B %d, %Y at %I:%M%p %Z")
 
 
-def gpt3_embedding(message, engine='text-embedding-ada-002'):
-    content = message.content
-    response = client.embeddings.create(input=content,model=engine)
+def gpt3_embedding(message, engine='mistral-embed'):
+    content = [message.content]
+    response = client.embeddings(input=content, model=engine)
     vector = response.data[0].embedding  # this is a normal list
     return vector
 
-def gpt3_response_embedding(response_data, engine='text-embedding-ada-002'):
-    content = response_data.reply_text
-    response = client.embeddings.create(input=content,model=engine)
+
+def gpt3_response_embedding(response_data, engine='mistral-embed'):
+    content = [response_data.reply_text]
+    response = client.embeddings(input=content, model=engine)
     vector = response.data[0].embedding  # this is a normal list
     return vector
 
-def gpt3_memory_embedding(content, engine='text-embedding-ada-002'):
-    content = content.encode(encoding='ASCII',errors='ignore').decode()
-    response = client.embeddings.create(input=content,model=engine)
+
+def gpt3_memory_embedding(content, engine='mistral-embed'):
+    content = [content.encode(encoding='ASCII', errors='ignore').decode()]
+    response = client.embeddings(input=content, model=engine)
     vector = response.data[0].embedding  # this is a normal list
     return vector
 
@@ -78,6 +83,7 @@ def fetch_memories(vector, logs, count):
     except:
         return ordered
 
+
 def add_notes(notes):
     global notes_history
     notes_history.append(notes)
@@ -94,6 +100,7 @@ def load_convo():
     ordered = sorted(result, key=lambda d: d['timestring'], reverse=False)  # sort them all chronologically
     return ordered
 
+
 def load_context():
     files = os.listdir('./src/chat_logs')
     files = [i for i in files if '.json' in i]  # filter out any non-JSON files
@@ -104,6 +111,7 @@ def load_context():
     ordered = sorted(result, key=lambda d: d['timestring'], reverse=False)  # sort them all chronologically
     return ordered[-2]
 
+
 def load_memory():
     files = os.listdir('./src/notes')
     files = [i for i in files if '.json' in i]  # filter out any non-JSON files
@@ -113,15 +121,16 @@ def load_memory():
         result.append(data)
     return result
 
-def gpt3_completion(prompt, engine='gpt-3.5-turbo', temp=0.0, top_p=1.0, tokens=600, freq_pen=0.0, pres_pen=0.0, stop=['USER:', 'Jarvis:']):
+
+def gpt3_completion(prompt, engine='gpt-3.5-turbo', temp=0.0, top_p=1.0, tokens=600, freq_pen=0.0, pres_pen=0.0, stop=['USER:', 'Glovedbot:']):
     max_retry = 5
     retry = 0
-    prompt = prompt.encode(encoding='ASCII',errors='ignore').decode()
+    prompt = prompt.encode(encoding='ASCII', errors='ignore').decode()
     while True:
         try:
-            response = client.chat.completions.create(model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": prompt}])
-                
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo", messages=[{"role": "system", "content": prompt}])
+
             text = response.choices[0].message.content.strip()
             text = re.sub('[\r\n]+', '\n', text)
             text = re.sub('[\t ]+', ' ', text)
@@ -148,7 +157,7 @@ def summarize_memories(memories):  # summarize a block of memories into one payl
     block = block.strip()
     prompt = open_file('./src/prompt_notes.txt').replace('<<INPUT>>', block)
     notes = gpt3_completion(prompt)
-    ####   SAVE NOTES
+    # SAVE NOTES
     vector = gpt3_memory_embedding(block)
     info = {'notes': notes, 'uuids': identifiers, 'times': timestamps, 'uuid': str(uuid4()), 'vector': vector}
     filename = 'notes_%s.json' % time()
