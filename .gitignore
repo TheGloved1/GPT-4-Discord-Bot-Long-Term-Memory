@@ -1,6 +1,5 @@
 env
 .env
-.venv
 __pycache__/
 */.DS_Store
 .DS_Store
@@ -11,4 +10,3 @@ src/notes/
 !/images/mask.png
 database.json
 logs.txt
-
