@@ -1,11 +1,8 @@
 from numpy import not_equal
-from src.constants import MAX_CHARS_PER_REPLY_MSG
 from typing import Optional, List
 from discord import ChannelType, Message as DiscordMessage
 from src.base import Message
-import logging
-
-logger = logging.getLogger(__name__)
+from src.constants import MAX_CHARS_PER_REPLY_MSG, logger
 
 
 def discord_message_to_message(message: DiscordMessage) -> Optional[Message]:

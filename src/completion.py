@@ -1,16 +1,15 @@
 from time import time
 from uuid import uuid4
-from src.memory import (
-    timestamp_to_datetime
-)
+from src.memory import *
 from datetime import datetime
-from src.utils import split_into_shorter_messages, logger
 from src.base import Message, Prompt, Conversation
+from src.utils import (split_into_shorter_messages, discord_message_to_message)
 import discord
 from src.constants import (
     BOT_INSTRUCTIONS,
     BOT_NAME,
     EXAMPLE_CONVOS,
+    logger,
 )
 from typing import Optional, List
 import json
@@ -21,6 +20,7 @@ import openai
 from openai import OpenAI
 
 client = OpenAI()
+bot = discord.Client()
 
 
 MY_BOT_NAME = BOT_NAME

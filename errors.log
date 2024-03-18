@@ -1,0 +1,24 @@
+
+##########################
+Message: @gluvz said "Hi"
+-------------------
+Traceback:
+Traceback (most recent call last):
+  File "/home/gloves/projects/gpt-bot/src/main.py", line 148, in generate_response_with_text
+    message_history[channel_id] = text_model.start_chat(history=bot_template)
+                                                                ^^^^^^^^^^^^
+NameError: name 'bot_template' is not defined
+
+-------------------
+
+##########################
+Message: @gluvz said "Hello?"
+-------------------
+Traceback:
+Traceback (most recent call last):
+  File "/home/gloves/projects/gpt-bot/src/main.py", line 148, in generate_response_with_text
+    if not (channel_id in message_history):
+                          ^^^^^^^^^^^^^^^
+NameError: name 'message_history' is not defined
+
+-------------------

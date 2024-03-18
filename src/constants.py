@@ -1,4 +1,3 @@
-from venv import logger
 import discord
 from dotenv import load_dotenv
 import os
@@ -6,15 +5,16 @@ import dacite
 import yaml
 from typing import Dict, List
 from src.base import Config
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
-logger.info(os.environ["DISCORD_BOT_TOKEN"])
 
 # load config.yaml
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 CONFIG: Config = dacite.from_dict(Config, yaml.safe_load(open(os.path.join(SCRIPT_DIR, "config.yaml"), "r")))
 
-llm_model = "mistral"
 BOT_NAME = CONFIG.name
 BOT_INSTRUCTIONS = CONFIG.instructions
 EXAMPLE_CONVOS = CONFIG.example_conversations
@@ -47,3 +47,29 @@ MAX_CHARS_PER_REPLY_MSG = (
 
 MY_BOT_NAME = BOT_NAME
 MY_BOT_EXAMPLE_CONVOS = EXAMPLE_CONVOS
+
+text_generation_config = {
+    "temperature": 0.9,
+    "top_p": 1,
+    "top_k": 1,
+    # "max_output_tokens": 512,
+}
+image_generation_config = {
+    "temperature": 0.4,
+    "top_p": 1,
+    "top_k": 32,
+    # "max_output_tokens": 512,
+}
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+]
+
+bot_template = [
+    {'role': 'user', 'parts': ["@RandomGuy said Hi!"]},
+    {'role': 'model', 'parts': ["Hello! I am a Discord bot!"]},
+    {'role': 'user', 'parts': ["@Gluvz said Please give short and concise answers!"]},
+    {'role': 'model', 'parts': ["I will try my best!"]},
+]
